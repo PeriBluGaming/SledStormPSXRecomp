@@ -1,0 +1,35 @@
+format_version = 5
+id = "sledstorm.enhancement.widescreen"
+version = "0.1.0"
+name = "Widescreen 16:9"
+author = "PeriBluGaming"
+license = "PolyForm-Noncommercial-1.0.0"
+description = "Native 16:9 widescreen for Sled Storm: single-player races render a wider view of the track without stretching. Menus, loading screens and split-screen races stay 4:3. Experimental."
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "SLES-02194"
+
+[[feature]]
+id = "widescreen"
+name = "16:9 Widescreen"
+description = "Experimental. Renders single-player races natively in 16:9. Menus, loading screens and split-screen races stay 4:3. The HUD stays in its original 4:3 position unless the Edge-aligned HUD option is enabled."
+group = "Visual"
+default_enabled = false
+
+[[option]]
+feature = "widescreen"
+id = "edge-hud"
+label = "Edge-aligned HUD"
+description = "Experimental. Moves the race HUD panels, the speedometer and the track map to the edges of the 16:9 screen. Off keeps the HUD in its original 4:3 position."
+type = "boolean"
+default = "false"
+
+[[plugin]]
+feature = "widescreen"
+id = "sledstorm.widescreen"
+
+[[plugin]]
+feature = "widescreen"
+id = "sledstorm.ws-track-cull"

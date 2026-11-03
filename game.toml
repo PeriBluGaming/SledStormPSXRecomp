@@ -33,6 +33,11 @@ known_crc32 = [
 seeds = "seeds/ghidra_funcs.txt"
 out_dir = "generated"
 strict = true
+# Widescreen mod (mods/src/widescreen.c): the `bltz t4` screen-edge reject of
+# the four track triangle renderers (0x8007EAA4, 0x8007F0C8, 0x8007F700,
+# 0x8007FDD8). The mod only turns a reject into a keep, and only for the
+# single-player full-screen view while the widescreen view is active.
+mod_instruction_sites = ["0x8007EC9C", "0x8007F2C0", "0x8007F8C4", "0x8007FE7C"]
 
 [runtime]
 window_title = "SledStorm Recompiled"
@@ -42,6 +47,12 @@ overlay_cache = true
 [video]
 renderer = "opengl"
 aspect_ratio = "4:3"
+
+# Widescreen mod: frames that project 3D geometry through the GTE count as
+# gameplay; the mod's scene predicate keeps everything except single-player
+# races at native 4:3. Inert while the display aspect is 4:3.
+[widescreen]
+gte_game_mode = true
 
 [controller]
 default_mode = "digital"
