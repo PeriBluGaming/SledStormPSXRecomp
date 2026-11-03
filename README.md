@@ -35,18 +35,45 @@ The project was scaffolded with psxrecomp's New Project Layout. See
 
 ## Current status
 
-This is a first playable baseline.
+This is an early playable build.
 
 - The game starts, and controls, driving physics, graphics, tracks and audio
   work in the tests done so far. A complete race has been finished.
+- The project's first own mod is an optional native 16:9 widescreen mode (see
+  [Widescreen (16:9)](#widescreen-169)). It is experimental and disabled by
+  default. Further widescreen improvements, such as HUD adjustments, are
+  still in development.
 - Testing has been limited to the maintainer's own setup. No broader
   compatibility or platform testing has been done yet.
-- The project adds no widescreen, gameplay or other mods of its own. Only the
-  features that psxrecomp and recomp-ui provide are available.
 - The seed list in `seeds/ghidra_funcs.txt` is the first-pass scan of the boot
   executable and is expected to grow.
 
 Expect bugs.
+
+## Widescreen (16:9)
+
+The optional **16:9 Widescreen** mod (`sledstorm.enhancement.widescreen`)
+renders single-player races natively in 16:9 instead of stretching the 4:3
+picture:
+
+- Native 16:9 rendering for supported single-player races.
+- A wider view of the track: track geometry and scenery that the original 4:3
+  view cuts off at the sides are drawn.
+- Menus, loading screens and split-screen races keep the original 4:3
+  presentation.
+- With the mod disabled, the game keeps its original 4:3 rendering.
+- Disabled by default.
+
+To enable it, open the launcher's **Mods** page, switch on **16:9 Widescreen**
+(group *Visual*) and start the game. Switch it off the same way to return to
+the original 4:3 presentation.
+
+The HUD keeps its original 4:3 layout in the centre of the screen. Further
+widescreen work, such as moving HUD elements to the screen edges, is still in
+development. So far the mod has been tested in single races, the attract
+demo, pause and results screens and two-player split screen on the
+maintainer's setup; other race modes and tracks may still show issues.
+Gameplay, physics and controls are not changed.
 
 ## Requirements
 
@@ -170,8 +197,8 @@ BIOS/ROM/save plumbing so you are not stuck repeating each game’s first run by
 ## Credits
 
 - **[PeriBluGaming](https://github.com/PeriBluGaming)**: author and maintainer
-  of SledStormPSXRecomp (project setup, recompilation, testing and
-  documentation).
+  of SledStormPSXRecomp (project setup, recompilation, the 16:9 widescreen
+  mod, testing and documentation).
 - **Matthew Stanley**: [psxrecomp](https://github.com/mstan/psxrecomp) and
   [recomp-ui](https://github.com/RetroPortingToolKit/recomp-ui), which this
   project is built on, including the scaffold templates most project files
@@ -190,9 +217,11 @@ under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, modify
 and share them for noncommercial purposes, provided the license terms and its
 `Required Notice` lines are kept. No license for commercial use is granted.
 
-At this baseline the project contains **no gameplay or mod code of its own**.
-Most files were generated from psxrecomp templates or by psxrecomp tooling, so
-the license currently covers little more than the project's documentation.
+The project's own code is currently the widescreen mod: `mods/src/widescreen.c`
+and its manifest under `mods/preloaded/packages/`. Beyond that, the license
+covers the project's documentation and PeriBluGaming's own changes to
+otherwise generated or template-derived files. Most files were generated from
+psxrecomp templates or by psxrecomp tooling and keep their upstream terms.
 [NOTICE.md](NOTICE.md) lists the terms for every part of the repository.
 
 This license does **not** cover:

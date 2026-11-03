@@ -22,21 +22,30 @@ PeriBluGaming's own copyrightable contributions are Copyright (c) 2026
 PeriBluGaming and licensed under the PolyForm Noncommercial License 1.0.0
 (see `LICENSE`).
 
-**Current state:** as of the first playable baseline, this repository contains
-no gameplay code, mod code or tool code written by PeriBluGaming. The project
-currently consists of psxrecomp scaffold files, code generated from the
-original game, tool-generated metadata and documentation. PeriBluGaming's own
-contributions are therefore currently limited to:
+**Current state:** the project's only original code is the optional native
+16:9 widescreen mod. The rest of the repository consists of psxrecomp
+scaffold files, code generated from the original game, tool-generated
+metadata and documentation. PeriBluGaming's own contributions are:
 
+- `mods/src/widescreen.c`: the widescreen mod (16:9 presentation for
+  single-player races and the track renderer's widened screen-edge cull)
+- `mods/preloaded/packages/sledstorm.enhancement.widescreen/0.1.0/manifest.toml`:
+  the widescreen mod's package manifest
 - `NOTICE.md` (this file)
 - The project-specific text of `README.md` (the file as a whole is of mixed
   origin; see section 2)
 - PeriBluGaming's own changes, if any are protectable, in the mixed-origin
-  files listed in section 2
+  files listed in section 2 and in `game.toml` (section 5)
 
-Original code added in the future will be listed in this section. Where
-practical, such files will carry
-`SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0`.
+`mods/src/widescreen.c` carries
+`SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0`, and the manifest
+states the same license. Original code added in the future will be listed in
+this section.
+
+The mod is written against psxrecomp's mod API and is compiled into a runtime
+that is itself under psxrecomp's terms (section 7). Game addresses and
+behaviour described in it are facts about the original game; no claim is made
+to those facts.
 
 ## 2. Mixed-origin files: psxrecomp-derived with project changes
 
@@ -52,7 +61,8 @@ subject to psxrecomp's terms.
 | Path | Origin |
 |---|---|
 | `README.md` | Scaffold template, rewritten with substantial project-specific text. The `retcomm-readme-*` blocks are maintained by upstream tooling. |
-| `CMakeLists.txt`, `codegen_setup.c`, `symbols.toml` | Scaffold template, token substitution only |
+| `CMakeLists.txt` | Scaffold template with token substitution, plus the project's build entry for the widescreen mod |
+| `codegen_setup.c`, `symbols.toml` | Scaffold template, token substitution only |
 | `.github/workflows/release.yml` | psxrecomp release workflow template, token substitution only |
 | `scripts/package_prebuilt_release.sh` | Scaffold template, token substitution only |
 | `packaging/release.toml`, `packaging/linux/AppRun`, `packaging/linux/sledstorm.desktop`, `packaging/release/START_HERE.txt` | Scaffold templates, token substitution only |
@@ -91,7 +101,9 @@ does not cover them.
 
 - `generated/`: C code that psxrecomp produced by machine translation of the
   game's retail executable (`SLES_021.94`). It is derived from copyrighted game
-  code. It also contains boilerplate emitted by psxrecomp's code generator. No
+  code. It also contains boilerplate emitted by psxrecomp's code generator,
+  including the four mod hook calls the generator inserts for the instruction
+  sites listed in `game.toml`; `generated/` is never edited by hand. No
   license to it is granted by this project. The same applies to the compiled
   game inside release executables.
 
@@ -120,6 +132,12 @@ copyright in them.
 
 `probe_disc.py` is psxrecomp's vendored copy of a tool from retcomm-studio
 (MIT). Its license applies to the tool, not to the facts it writes.
+
+PeriBluGaming added the widescreen mod's settings to `game.toml` (the
+`mod_instruction_sites` list and the `[widescreen]` table, with their
+comments). The addresses and options record facts about the game and the
+build; PeriBluGaming's own changes are offered under the PolyForm
+Noncommercial License 1.0.0 to the extent they are protectable.
 
 ## 6. psxrecomp's license text
 
@@ -162,8 +180,8 @@ package: `licenses/` holds psxrecomp's license (`psxrecomp-LICENSE`), its
 third-party attribution and notices, and recomp-ui's license.
 `bios/OpenBIOS.LICENSE`, `assets/fonts/NOTICE.md` and `assets/img/NOTICE.md`
 sit beside the files they cover. The executable contains the compiled game
-(section 4), the psxrecomp runtime and recomp-ui. Each part keeps its own
-terms.
+(section 4), the psxrecomp runtime, recomp-ui and this project's widescreen
+mod (section 1). Each part keeps its own terms.
 
 This project's `LICENSE` and this `NOTICE.md` ship at the root of every
 release package, through `packaging/release.toml` (official builder) and
@@ -195,9 +213,12 @@ game.
 
 Claude (Anthropic) was used to draft the documentation in this repository,
 including `NOTICE.md`, the `README.md` text and the `Required Notice:` lines
-in `LICENSE`, under PeriBluGaming's direction and review. Copyright is claimed
-only to the extent the law recognises it. The license applies to whatever
-protectable authorship these files contain.
+in `LICENSE`, under PeriBluGaming's direction and review. Claude was also used
+to analyse the game's executable and to write the widescreen mod
+(`mods/src/widescreen.c`, its manifest and its `game.toml` and
+`CMakeLists.txt` entries) under PeriBluGaming's direction, review and
+playtesting. Copyright is claimed only to the extent the law recognises it.
+The license applies to whatever protectable authorship these files contain.
 
 The code in `generated/` was produced by psxrecomp's code generator from the
 game's executable. It was not written by an AI assistant.

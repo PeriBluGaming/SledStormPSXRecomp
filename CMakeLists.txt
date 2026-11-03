@@ -55,6 +55,15 @@ psxrecomp_add_game_runtime(psx-runtime
     CODEGEN_SETUP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/codegen_setup.c"
 )
 
+# Sled Storm mods: native 16:9 widescreen for single-player races.
+target_sources(psx-runtime PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/mods/src/widescreen.c"
+)
+
+target_include_directories(psx-runtime PRIVATE
+    "${PSXRECOMP_ROOT}/runtime/include"
+)
+
 # Stage runtime configs next to the exe for direct build/ launches. Only copy
 # files that exist — never fail POST_BUILD when game_options.toml is absent.
 foreach(_PSX_RUNTIME_CONFIG game.toml game_options.toml)
