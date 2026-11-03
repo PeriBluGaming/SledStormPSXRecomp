@@ -615,6 +615,13 @@ jobs:
               exit 1
             fi
           done
+          # 1b. This project's own license terms and provenance notice.
+          for must in 'LICENSE' 'NOTICE.md'; do
+            if ! grep -qx "${must}" <<<"${LIST}"; then
+              echo "::error::release zip lacks ${must}" >&2
+              exit 1
+            fi
+          done
           MANIFESTS=$(grep -c 'mods/bundled/.*/manifest\.toml' <<<"${LIST}" || true)
           echo "mod manifests in zip: ${MANIFESTS}"
           if [[ "${MANIFESTS}" -lt 1 ]]; then
