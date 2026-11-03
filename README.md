@@ -41,8 +41,8 @@ This is an early playable build.
   work in the tests done so far. A complete race has been finished.
 - The project's first own mod is an optional native 16:9 widescreen mode (see
   [Widescreen (16:9)](#widescreen-169)). It is experimental and disabled by
-  default. Further widescreen improvements, such as HUD adjustments, are
-  still in development.
+  default. An optional edge-aligned HUD is part of it, also experimental and
+  off by default.
 - Testing has been limited to the maintainer's own setup. No broader
   compatibility or platform testing has been done yet.
 - The seed list in `seeds/ghidra_funcs.txt` is the first-pass scan of the boot
@@ -68,11 +68,15 @@ To enable it, open the launcher's **Mods** page, switch on **16:9 Widescreen**
 (group *Visual*) and start the game. Switch it off the same way to return to
 the original 4:3 presentation.
 
-The HUD keeps its original 4:3 layout in the centre of the screen. Further
-widescreen work, such as moving HUD elements to the screen edges, is still in
-development. So far the mod has been tested in single races, the attract
-demo, pause and results screens and two-player split screen on the
-maintainer's setup; other race modes and tracks may still show issues.
+By default the HUD keeps its original 4:3 layout in the centre of the screen.
+The mod's optional **Edge-aligned HUD** setting (`edge-hud`, default `false`)
+moves the race HUD panels, the speedometer and the track map with its racer
+markers to the edges of the 16:9 screen. Centred messages such as the
+countdown, Wrong Way and stunt scores stay in the centre. The setting can be
+switched during a race. So far the mod has been tested in single races, the
+attract demo, pause and results screens and two-player split screen, and the
+edge-aligned HUD on three tracks, on the maintainer's setup; other race modes
+and tracks may still show issues.
 Gameplay, physics and controls are not changed.
 
 ## Requirements
