@@ -1,0 +1,46 @@
+{
+  "format_version": 1,
+  "game": {
+    "name": "SledStorm",
+    "id": "SLES-02194",
+    "boot_exe": "SLES_021.94"
+  },
+  "marketing": {
+    "description": "",
+    "publisher": "",
+    "year": "",
+    "region": "EUROPE",
+    "players": 4
+  },
+  "rom_identity": {
+    "cue_name": "Sled Storm (Europe) (En,Fr,De,Es).cue",
+    "bin_name": "Sled Storm (Europe) (En,Fr,De,Es) (Track 01).bin",
+    "track_counts": [
+      11
+    ],
+    "require_cue": true,
+    "data_track": {
+      "size": 297118752,
+      "md5": "30f2227276e5514b71ee791f02eef35e",
+      "sha1": "c5506c3eb3601d68d11f2c8754e03a6b06be5f2d",
+      "crc32": "b7c358ab"
+    },
+    "disc_fp": "6b272192b22318d170266da07a051465ac45c076c5ffda030b95d8489b879584"
+  },
+  "exe": {
+    "load_address": "0x80010000",
+    "entry_pc": "0x800800FC",
+    "text_size": "0x000B4000",
+    "stack_base": "0x801FFFF0"
+  },
+  "seeds": {
+    "count": 1221,
+    "source": "boot_exe_jal"
+  },
+  "warnings": [],
+  "notes": [
+    "entry_pc/load_address/text_size/stack_base taken from PS-X EXE header.",
+    "seeds are first-pass boot-EXE JAL targets (+ entry); expect to grow as overlays / runtime paths are discovered.",
+    "required_disc_fp is psxrecomp-toc-v1 (matches runtime DiscIdentity)."
+  ]
+}

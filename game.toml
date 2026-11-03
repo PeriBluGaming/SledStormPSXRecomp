@@ -1,0 +1,54 @@
+# Autofilled by tools/new_project_layout/probe_disc.py from your legal dump.
+# Review before shipping. Runtime quirks / overlay seeds still need hand work.
+
+[game]
+name = "SledStorm"
+id = "SLES-02194"
+players = 4
+exe = "disc/SLES_021.94"
+disc = "/Users/dominikblunck/Documents/Entwicklung/recomp/discs/sled_storm/Sled Storm (Europe) (En,Fr,De,Es).cue"
+load_address = "0x80010000"
+entry_pc = "0x800800FC"
+text_size = "0x000B4000"
+stack_base = "0x801FFFF0"
+
+# Digests are for data Track 01 (first BINARY FILE / TRACK 01).
+[prepare_disc]
+out_dir = "disc"
+bin_name = "Sled Storm (Europe) (En,Fr,De,Es) (Track 01).bin"
+cue_name = "Sled Storm (Europe) (En,Fr,De,Es).cue"
+boot_exe = "SLES_021.94"
+known_sizes = [297118752]
+known_md5 = [
+  "30f2227276e5514b71ee791f02eef35e",
+]
+known_sha1 = [
+  "c5506c3eb3601d68d11f2c8754e03a6b06be5f2d",
+]
+known_crc32 = [
+  "b7c358ab",
+]
+
+[recompiler]
+seeds = "seeds/ghidra_funcs.txt"
+out_dir = "generated"
+strict = true
+
+[runtime]
+window_title = "SledStorm Recompiled"
+memcard_dir = "saves"
+overlay_cache = true
+
+[video]
+renderer = "opengl"
+aspect_ratio = "4:3"
+
+[controller]
+default_mode = "digital"
+
+# Online mount gate: digests + track count + optional TOC fingerprint
+# (see docs/NETPLAY.md).
+[netplay]
+require_cue = true
+required_tracks = 11
+required_disc_fp = "6b272192b22318d170266da07a051465ac45c076c5ffda030b95d8489b879584"
