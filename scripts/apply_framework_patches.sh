@@ -61,6 +61,15 @@ for p in "$PATCH_DIR"/[0-9][0-9][0-9][0-9]-*.patch; do
 done
 [ ${#PATCHES[@]} -gt 0 ] || die "no patches found in $PATCH_DIR"
 
+# A patch checked out with CRLF line endings (core.autocrlf without this
+# repository's .gitattributes) matches no context line, so stop early.
+CR="$(printf '\r')"
+for p in "${PATCHES[@]}"; do
+  if grep -q "$CR" "$p"; then
+    die "$(basename "$p") has CR (CRLF) line endings and cannot apply. The repository's .gitattributes keeps patches byte-exact; check it is present and re-check the patches out: git checkout -- patches/psxrecomp"
+  fi
+done
+
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
   else shasum -a 256 "$1" | cut -d' ' -f1
@@ -73,6 +82,17 @@ WORK="$(cd "$WORK" && pwd -P)"
 EXPECTED="$WORK/expected"
 PATHS="$WORK/paths"
 mkdir -p "$EXPECTED"
+
+# The useful part of a failed git apply: its error and fatal lines. Whitespace
+# warnings come first and would hide the cause; without such lines, its last
+# lines.
+apply_errors() {
+  local found
+  found="$(grep -E '^(error|fatal):' "$WORK/apply.err" | head -n 5 | tr '\n' ' ' || true)"
+  [ -n "$found" ] || found="$(tail -n 3 "$WORK/apply.err" | tr '\n' ' ')"
+  [ -n "$found" ] || found="(git apply printed no diagnostics)"
+  printf '%s' "$found"
+}
 
 # Every path the series touches (the post-image name of each file diff).
 : >"$PATHS"
@@ -96,7 +116,7 @@ while read -r path; do
   fi
 done <"$PATHS"
 ( cd "$EXPECTED" && GIT_CEILING_DIRECTORIES="$WORK" git apply "${PATCHES[@]}" ) 2>"$WORK/apply.err" ||
-  die "the patch series does not apply to $BASE (damaged or outdated patch): $(head -n 3 "$WORK/apply.err" | tr '\n' ' ')"
+  die "the patch series does not apply to $BASE (damaged or outdated patch): $(apply_errors)"
 
 changed_paths() {
   git -C "$FW" status --porcelain --untracked-files=all --ignore-submodules=none |
@@ -134,9 +154,9 @@ if [ -z "$(changed_paths)" ]; then
     exit 2
   fi
   git -C "$FW" apply --check "${PATCHES[@]}" 2>"$WORK/apply.err" ||
-    die "the patches do not apply to psxrecomp: $(head -n 3 "$WORK/apply.err" | tr '\n' ' ')"
+    die "the patches do not apply to psxrecomp: $(apply_errors)"
   git -C "$FW" apply "${PATCHES[@]}" 2>"$WORK/apply.err" ||
-    die "applying the patches failed: $(head -n 3 "$WORK/apply.err" | tr '\n' ' ')"
+    die "applying the patches failed: $(apply_errors)"
   left="$(mismatches)"
   [ -z "$left" ] ||
     die "the applied result differs from the expected one (line-ending or filter settings?): $(printf '%s' "$left" | tr '\n' ';')"
