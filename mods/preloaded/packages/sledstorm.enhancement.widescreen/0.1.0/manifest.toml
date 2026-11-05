@@ -4,7 +4,7 @@ version = "0.1.0"
 name = "Widescreen 16:9"
 author = "PeriBluGaming"
 license = "PolyForm-Noncommercial-1.0.0"
-description = "Native 16:9 widescreen for Sled Storm: single-player races render a wider view of the track without stretching. Menus, loading screens and split-screen races stay 4:3. Experimental."
+description = "Native 16:9 widescreen for Sled Storm: single-player races render a wider view of the track without stretching. Menus stay 4:3 unless Widescreen menus is enabled; loading screens and split-screen races stay 4:3. Experimental."
 resolver = "declarative"
 save_compatibility = "shared"
 
@@ -14,7 +14,7 @@ game_id = "SLES-02194"
 [[feature]]
 id = "widescreen"
 name = "16:9 Widescreen"
-description = "Experimental. Renders single-player races natively in 16:9. Menus, loading screens and split-screen races stay 4:3. The HUD stays in its original 4:3 position unless the Edge-aligned HUD option is enabled."
+description = "Experimental. Renders single-player races natively in 16:9. Menus stay 4:3 unless the Widescreen menus option is enabled; loading screens and split-screen races stay 4:3. The HUD stays in its original 4:3 position unless the Edge-aligned HUD option is enabled."
 group = "Visual"
 default_enabled = false
 
@@ -23,6 +23,14 @@ feature = "widescreen"
 id = "edge-hud"
 label = "Edge-aligned HUD"
 description = "Experimental. Moves the race HUD panels, the speedometer and the track map to the edges of the 16:9 screen. Off keeps the HUD in its original 4:3 position."
+type = "boolean"
+default = "false"
+
+[[option]]
+feature = "widescreen"
+id = "widescreen-menus"
+label = "Widescreen menus"
+description = "Experimental. Shows the menus with a 3D background in native 16:9: the scene behind them is wider and the menu frame reaches the screen edges. Screens that cannot be widened safely stay 4:3. Off keeps all menus in 4:3."
 type = "boolean"
 default = "false"
 

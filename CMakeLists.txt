@@ -8,6 +8,8 @@ if(NOT EXISTS "${PSXRECOMP_ROOT}/runtime/runtime.cmake")
         "Run: git submodule update --init --recursive\n"
         "If psxrecomp/ is not a submodule, set -DPSXRECOMP_ROOT=<path-to-psxrecomp>.")
 endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/framework_patches.cmake")
+sledstorm_require_framework_patches("${PSXRECOMP_ROOT}")
 
 project(SledStormRecomp LANGUAGES C CXX)
 

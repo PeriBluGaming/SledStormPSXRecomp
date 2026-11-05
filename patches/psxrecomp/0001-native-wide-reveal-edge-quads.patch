@@ -1,0 +1,871 @@
+diff --git a/docs/ADAPTIVE_SCREEN_MASKS.md b/docs/ADAPTIVE_SCREEN_MASKS.md
+index 39f6f24f10991e1df426291bb5780dd6b21230b3..7496eef8403833a25e5e353030a86712641b9212 100644
+--- a/docs/ADAPTIVE_SCREEN_MASKS.md
++++ b/docs/ADAPTIVE_SCREEN_MASKS.md
+@@ -10,6 +10,7 @@ The public functions in `runtime/include/mod_plugins.h` are:
+ | API | Contract |
+ | --- | --- |
+ | `psx_mod_tag_screen_mask_quad(prim)` | Extend a flat quad's full-width top/bottom panel or existing vertical side band into the visible reveal. |
++| `psx_mod_tag_reveal_edge_quad(prim, edges)` | Grow an owned axis-aligned flat quad, or a textured quad whose four UVs name one texel, from a left/right boundary that already reaches the canonical edge to the visible reveal edge. |
+ | `psx_mod_tag_radial_screen_mask_quad(prim, scale)` | Scale an owned flat/Gouraud quad about the display centre; tag every piece of the transition. |
+ | `psx_mod_anchor_hud_primitive(prim, anchor)` | Translate left/right HUD by the visible side margin, or preserve centered text with `anchor == 0`. |
+ | `psx_mod_widescreen_view_x_margin()` | Return the configured visible per-side reveal, excluding culling safety guards. |
+@@ -32,6 +33,21 @@ single expansion. Slanted quads and interior strips do not acquire panel
+ coverage. Adapters must establish ownership; screen position alone is not
+ an ownership test.
+ 
++Reveal-edge quads cover menu frames that screen masks do not: bars, divider
++lines and tint strips at any height, including one-texel textured bars.
++`edges` is `PSX_MOD_REVEAL_EDGE_LEFT`, `PSX_MOD_REVEAL_EDGE_RIGHT` or both.
++Only a requested side whose boundary lies on or beyond the canonical edge
++(and inside the reveal) grows, so a divider's interior end stays joined to
++its artwork. The band is drawn when the packet executes, keeping its
++ordering-table position, colour, modulation, CLUT, texture page, texture
++window and blend, and never overlaps the quad, so translucent tints do not
++blend twice. Accepted packets are GP0 0x28-0x2B (5 words) and 0x2C-0x2F
++(9 words) with four identical UVs; full-frame quads keep the renderer's
++single full-screen expansion. An explicit HUD anchor on the same packet wins.
++Tests: `ws_reveal_edge_test` (geometry, admission, tag storage) and
++`ws_reveal_edge_exec_test` (real GP0 handlers, guard, expiry, 4:3, reset and
++state load).
++
+ Radial scale must be finite and between 1 and 64. Derive it from the
+ producer's authored geometry and pixel aspect; scale both feathered and
+ solid rings together. The original transition timer remains authoritative.
+diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
+index 4b20933a8bcbe41bb1e499877485096f1be85133..ec06b9ff737cf376978ce974741ec888734a2ea0 100644
+--- a/runtime/CMakeLists.txt
++++ b/runtime/CMakeLists.txt
+@@ -1358,6 +1358,22 @@ if(BUILD_TESTING)
+         target_link_libraries(ws_screen_mask_test PRIVATE m)
+     endif()
+     add_test(NAME ws_screen_mask_test COMMAND ws_screen_mask_test)
++    add_executable(ws_reveal_edge_test tests/test_ws_reveal_edge.c)
++    target_include_directories(ws_reveal_edge_test PRIVATE include)
++    add_test(NAME ws_reveal_edge_test COMMAND ws_reveal_edge_test)
++    # Reveal-edge quads through the real GP0 flat/textured quad handlers.
++    add_executable(ws_reveal_edge_exec_test
++        tests/test_ws_reveal_edge_exec.c
++        src/psx_video_timing.c
++        src/gpu_timeline.c)
++    target_include_directories(ws_reveal_edge_exec_test PRIVATE include src)
++    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
++        target_compile_options(ws_reveal_edge_exec_test PRIVATE
++            -ffunction-sections -fdata-sections)
++        target_link_options(ws_reveal_edge_exec_test PRIVATE
++            $<IF:$<PLATFORM_ID:Darwin>,-Wl$<COMMA>-dead_strip,-Wl$<COMMA>--gc-sections>)
++    endif()
++    add_test(NAME ws_reveal_edge_exec_test COMMAND ws_reveal_edge_exec_test)
+ 
+     add_executable(mod_gpu_dma_aperture_test
+         tests/test_mod_gpu_dma_aperture.c
+diff --git a/runtime/include/gpu.h b/runtime/include/gpu.h
+index 12e9533d7a880b9de3d42a11187216f44b8d217c..97c8ca51b40beb3a02183f6aa127dd2edcf6f499 100644
+--- a/runtime/include/gpu.h
++++ b/runtime/include/gpu.h
+@@ -588,6 +588,13 @@ void gpu_ws_tag_feedback_rect(uint32_t prim);
+  * letterbox panels to adaptive edges, preserving the interior opening.
+  * Packet guarded, cleared on reset/load, inert outside native-wide gameplay. */
+ void gpu_ws_tag_screen_mask_quad(uint32_t prim);
++/* Title-identified axis-aligned flat quad, or textured quad whose four UVs
++ * name one texel: grow an outer vertical boundary that lies on or beyond the
++ * canonical display edge into the visible reveal. edges: 1 left, 2 right,
++ * 3 both. Only the part outside the quad is drawn, in its OT position with
++ * its colour, CLUT, texture page and blend. Packet guarded, expires after two
++ * frames, cleared on reset/load, inert outside native-wide. */
++void gpu_ws_tag_reveal_edge_quad(uint32_t prim, int edges);
+ /* Title-owned flat/Gouraud radial screen mask. Render-only scale about the
+  * display centre; guest coordinates and timing stay unchanged. Scale >= 1,
+  * inert at 4:3, packet guarded and reset alongside other transient tags. */
+diff --git a/runtime/include/mod_plugins.h b/runtime/include/mod_plugins.h
+index 0f06d048690d0b1c871054537946f5590f4ea2f8..5728b579ba0a39cce182b021c0985592bbb28dcf 100644
+--- a/runtime/include/mod_plugins.h
++++ b/runtime/include/mod_plugins.h
+@@ -415,6 +415,20 @@ void psx_mod_set_gte_sxy_tracking(int enabled);
+  * Both services are render-only, word guarded and inert at native 4:3. */
+ void psx_mod_tag_screen_mask_quad(uint32_t primitive);
+ void psx_mod_tag_radial_screen_mask_quad(uint32_t primitive, float scale);
++/* Frame pieces identified by their title's producer, P_TAG addresses: an
++ * axis-aligned flat quad (GP0 0x28-0x2B) or a textured quad (0x2C-0x2F)
++ * whose four UVs name one texel, such as a menu bar, divider line or tint
++ * panel. A requested outer vertical boundary that lies on or beyond the
++ * canonical display edge grows to the visible native-wide edge; interior
++ * boundaries stay put. Only the part outside the quad is drawn, right where
++ * the packet executes, with its colour, CLUT, texture page and blend, so a
++ * translucent piece never blends twice. Word guarded, expires after two
++ * frames, cleared on reset/load, inert at native 4:3. */
++enum {
++    PSX_MOD_REVEAL_EDGE_LEFT = 1,
++    PSX_MOD_REVEAL_EDGE_RIGHT = 2
++};
++void psx_mod_tag_reveal_edge_quad(uint32_t primitive, int edges);
+ /* Exclude a known world packet from screen-space backdrop stretching, even
+  * if it sorts before the first shaded polygon. Zero clears a recycled tag. */
+ void psx_mod_tag_world_primitive(uint32_t primitive, int is_world);
+diff --git a/runtime/include/ws_reveal_edge.h b/runtime/include/ws_reveal_edge.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..cd711a57b7e8b09b33d8db955e3b95a89df2e71a
+--- /dev/null
++++ b/runtime/include/ws_reveal_edge.h
+@@ -0,0 +1,73 @@
++#ifndef PSXRECOMP_WS_REVEAL_EDGE_H
++#define PSXRECOMP_WS_REVEAL_EDGE_H
++#include <stdint.h>
++#include "ws_screen_mask.h"
++
++/* Reveal-edge quads: a title-identified, axis-aligned screen-space quad (a
++ * menu bar, a divider line, a tint panel) whose outer vertical boundary
++ * already lies on or beyond the canonical display edge grows into the
++ * visible native-wide reveal. Only the missing part outside the authored
++ * quad is returned, so the original pixels, every interior boundary and the
++ * quad's own blend are untouched and a translucent quad never blends twice.
++ * Unlike screen masks the quad may sit anywhere vertically. */
++enum {
++    WS_REVEAL_EDGE_LEFT = 1,
++    WS_REVEAL_EDGE_RIGHT = 2,
++    WS_REVEAL_EDGE_BOTH = WS_REVEAL_EDGE_LEFT | WS_REVEAL_EDGE_RIGHT
++};
++
++/* The tag table stores a clamped anchor (-1, 0, +1): left only, both, right
++ * only. */
++static inline int ws_reveal_edge_to_anchor(int edges) {
++    edges &= WS_REVEAL_EDGE_BOTH;
++    if (edges == WS_REVEAL_EDGE_LEFT) return -1;
++    if (edges == WS_REVEAL_EDGE_RIGHT) return 1;
++    return 0;
++}
++static inline int ws_reveal_edge_from_anchor(int anchor) {
++    if (anchor < 0) return WS_REVEAL_EDGE_LEFT;
++    if (anchor > 0) return WS_REVEAL_EDGE_RIGHT;
++    return WS_REVEAL_EDGE_BOTH;
++}
++
++/* Admissible packets: a flat quad (GP0 0x28-0x2B, 5 words) or a textured
++ * quad (0x2C-0x2F, 9 words) whose four texture coordinates name one texel,
++ * so an extension of any width samples exactly the authored colour. */
++static inline int ws_reveal_edge_packet_ok(const uint32_t *words,
++                                           uint32_t count) {
++    if (!words) return 0;
++    const uint32_t op = (words[0] >> 24) & 0xFCu;
++    if (op == 0x28u) return count == 5u;
++    if (op != 0x2Cu || count != 9u) return 0;
++    const uint32_t uv = words[2] & 0xFFFFu;
++    return (words[4] & 0xFFFFu) == uv && (words[6] & 0xFFFFu) == uv &&
++           (words[8] & 0xFFFFu) == uv;
++}
++
++/* At most one band per requested side, each wholly outside the quad and
++ * inside [-margin, width + margin). A full-frame quad is left to the
++ * renderer's existing single full-screen expansion, which would otherwise
++ * blend the sides twice. */
++static inline int ws_reveal_edge_bands(const int32_t x[4], const int32_t y[4],
++                                       int width, int height, int margin,
++                                       int edges, WsScreenMaskBand out[2]) {
++    if (!out || width <= 0 || height <= 0 || margin <= 0) return 0;
++    if (x[0] != x[2] || x[1] != x[3] || y[0] != y[1] || y[2] != y[3])
++        return 0;
++    const int32_t left = x[0] < x[1] ? x[0] : x[1];
++    const int32_t right = x[0] < x[1] ? x[1] : x[0];
++    const int32_t top = y[0] < y[2] ? y[0] : y[2];
++    const int32_t bottom = y[0] < y[2] ? y[2] : y[0];
++    if (right <= left || bottom <= top) return 0;
++    if (left <= 0 && right >= width && top <= 0 && bottom >= height) return 0;
++    int count = 0;
++    if ((edges & WS_REVEAL_EDGE_LEFT) && left <= 0 && left > -margin)
++        out[count++] = (WsScreenMaskBand){-margin, top, margin + left,
++                                          bottom - top};
++    if ((edges & WS_REVEAL_EDGE_RIGHT) && right >= width &&
++        right < width + margin)
++        out[count++] = (WsScreenMaskBand){right, top, width + margin - right,
++                                          bottom - top};
++    return count;
++}
++#endif
+diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
+index 2d3ef4a7441419138f44092a3a7cd507c44a03a6..55089422a8f98eeaabee251640fe40ce3b0e6e53 100644
+--- a/runtime/src/gpu.c
++++ b/runtime/src/gpu.c
+@@ -48,6 +48,7 @@
+ #include "ws_repeat_rect.h"
+ #include "ws_feedback_rect.h"
+ #include "ws_screen_mask.h"
++#include "ws_reveal_edge.h"
+ #include "ws_radial_screen_mask.h"
+ #include <stdint.h>
+ #include <math.h>
+@@ -244,6 +245,8 @@ static uint32_t ws_background_tag_frame;
+ static int ws_background_tags_used;
+ static WsHudAnchorTag ws_reveal_clear_tags[WS_HUD_ANCHOR_TABLE_SIZE];
+ static WsHudAnchorTag ws_screen_mask_tags[WS_HUD_ANCHOR_TABLE_SIZE];
++static WsHudAnchorTag ws_reveal_edge_tags[WS_HUD_ANCHOR_TABLE_SIZE];
++static int ws_reveal_edge_tags_used;   /* skip the lookup until a title tags */
+ static WsRadialScreenMaskTag ws_radial_screen_mask_tags[WS_RADIAL_MASK_TAG_COUNT];
+ static WsRepeatRectTag ws_repeat_rect_tags[WS_REPEAT_RECT_TAG_TABLE_SIZE];
+ static WsRepeatRectTag ws_feedback_rect_tags[WS_REPEAT_RECT_TAG_TABLE_SIZE];
+@@ -2875,6 +2878,21 @@ void gpu_ws_tag_screen_mask_quad(uint32_t prim) {
+                          (uint32_t)s_frame_count);
+ }
+ 
++void gpu_ws_tag_reveal_edge_quad(uint32_t prim, int edges) {
++    edges &= WS_REVEAL_EDGE_BOTH;
++    if (!edges || !ws_native_wide_configured() || (prim & 3u) ||
++        prim > UINT32_MAX - 4u)
++        return;
++    uint32_t words[12], count = 0;
++    if (!ws_hud_command_words(prim + 4u, words, &count) ||
++        !ws_reveal_edge_packet_ok(words, count)) return;
++    WsPrepassPacketGuard guard = ws_prepass_packet_guard(words, count);
++    ws_hud_anchor_insert(ws_reveal_edge_tags, WS_HUD_ANCHOR_TABLE_SIZE,
++                         GPU_RAM_KEY(prim + 4u), ws_reveal_edge_to_anchor(edges),
++                         &guard, (uint32_t)s_frame_count);
++    ws_reveal_edge_tags_used = 1;
++}
++
+ void gpu_ws_tag_radial_screen_mask_quad(uint32_t prim, float scale) {
+     if (!ws_native_wide_configured() || (prim & 3u) || prim > UINT32_MAX - 4u)
+         return;
+@@ -2924,6 +2942,21 @@ static int ws_explicit_hud_anchor(int *out_anchor) {
+     return ws_explicit_hud_anchor_ex(out_anchor, NULL);
+ }
+ 
++/* Sides the executing quad may grow into the reveal (0 when untagged). An
++ * explicit HUD anchor on the same packet wins: a moved widget never grows. */
++static int ws_nw_reveal_edges(uint32_t word_count) {
++    if (!ws_reveal_edge_tags_used || !ws_native_wide_active() ||
++        gp0_cmd_source_addr == UINT32_MAX)
++        return 0;
++    int anchor = 0;
++    if (!ws_hud_anchor_lookup(ws_reveal_edge_tags, WS_HUD_ANCHOR_TABLE_SIZE,
++                              GPU_RAM_KEY(gp0_cmd_source_addr), gp0_cmd_buf,
++                              word_count, (uint32_t)s_frame_count, &anchor) ||
++        ws_explicit_hud_anchor(NULL))
++        return 0;
++    return ws_reveal_edge_from_anchor(anchor);
++}
++
+ static int ws_nw_explicit_hud_delta(int32_t *out_delta) {
+     if (out_delta) *out_delta = 0;
+     if (!ws_native_wide_active()) return 0;
+@@ -4145,6 +4178,8 @@ static void gpu_reset_state(int clear_vram) {
+     ws_background_tags_used = 0;
+     ws_hud_anchor_clear(ws_reveal_clear_tags, WS_HUD_ANCHOR_TABLE_SIZE);
+     ws_hud_anchor_clear(ws_screen_mask_tags, WS_HUD_ANCHOR_TABLE_SIZE);
++    ws_hud_anchor_clear(ws_reveal_edge_tags, WS_HUD_ANCHOR_TABLE_SIZE);
++    ws_reveal_edge_tags_used = 0;
+     ws_radial_mask_clear(ws_radial_screen_mask_tags);
+     ws_repeat_rect_tag_clear(ws_repeat_rect_tags);
+     ws_repeat_rect_tag_clear(ws_feedback_rect_tags);
+@@ -5471,7 +5506,24 @@ static void gp0_exec_mono_quad(void) {
+         ws_hud_anchor_lookup(ws_screen_mask_tags, WS_HUD_ANCHOR_TABLE_SIZE,
+             GPU_RAM_KEY(gp0_cmd_source_addr), gp0_cmd_buf, 5u,
+             (uint32_t)s_frame_count, NULL);
+-    if (!radial_mask && !screen_mask) ws_auto_ui_transform_quad(vx, vy);
++    const int reveal_edges = radial_mask || screen_mask ? 0 : ws_nw_reveal_edges(5u);
++    if (!radial_mask && !screen_mask && !reveal_edges) ws_auto_ui_transform_quad(vx, vy);
++
++    /* Reveal edges: only the part outside the authored quad, in its own OT
++     * position, colour and blend; canonical VRAM clips it away. */
++    if (reveal_edges) {
++        WsScreenMaskBand bands[2];
++        int count = ws_reveal_edge_bands(vx, vy, ws_disp_w(), ws_disp_h(),
++                                         draw_area_wide_x_margin(),
++                                         reveal_edges, bands);
++        if (count) {
++            gr_set_semi_transparency(semi_trans, (int)semi_transparency);
++            for (int i = 0; i < count; i++)
++                gr_draw_flat_rect(bands[i].x + draw_offset_x,
++                                  bands[i].y + draw_offset_y,
++                                  bands[i].w, bands[i].h, color);
++        }
++    }
+ 
+     /* Each added band is outside the original screen and executes in the
+      * mask's own OT position/blend mode. Canonical VRAM clips it away. */
+@@ -5511,7 +5563,7 @@ static void gp0_exec_mono_quad(void) {
+         gr_draw_flat_rect(x, y, w, h, color);
+         return;
+     }
+-    if (!radial_mask && !screen_mask) {
++    if (!radial_mask && !screen_mask && !reveal_edges) {
+         ws_nw_backdrop_stretch_quad(vx, vy);
+         ws_nw_hud_shift_vertices(vx, 4);
+     }
+@@ -5793,9 +5845,29 @@ static void gp0_exec_textured_quad(void) {
+         if (ws_tagged_anchor(&ws_ax))
+             for (int i = 0; i < 4; i++) vx[i] = ws_scale_about(vx[i], ws_ax);
+     }
+-    ws_auto_ui_transform_quad(vx, vy);
+-    ws_nw_backdrop_stretch_quad(vx, vy);   /* full-frame 2D backdrop image stretch (no-op else) */
+-    ws_nw_hud_shift_vertices(vx, 4);
++    const int reveal_edges = ws_nw_reveal_edges(9u);
++    WsScreenMaskBand reveal_bands[2];
++    int reveal_count = 0;
++    if (reveal_edges) {
++        /* One-texel quad: each band samples that texel with the quad's own
++         * CLUT, texture page, modulation and blend, outside the quad only. */
++        reveal_count = ws_reveal_edge_bands(vx, vy, ws_disp_w(), ws_disp_h(),
++                                            draw_area_wide_x_margin(),
++                                            reveal_edges, reveal_bands);
++    } else {
++        ws_auto_ui_transform_quad(vx, vy);
++        ws_nw_backdrop_stretch_quad(vx, vy);   /* full-frame 2D backdrop image stretch (no-op else) */
++        ws_nw_hud_shift_vertices(vx, 4);
++    }
++    if (reveal_count) {
++        setup_textured_draw(color24, semi_trans, raw_texture);
++        for (int i = 0; i < reveal_count; i++)
++            gr_draw_textured_rect_scaled(reveal_bands[i].x + draw_offset_x,
++                                         reveal_bands[i].y + draw_offset_y,
++                                         reveal_bands[i].w, reveal_bands[i].h,
++                                         u[0], v[0], u[0], v[0],
++                                         clut_x, clut_y, tpage);
++    }
+ 
+     for (int i = 0; i < 4; i++) {
+         vx[i] += draw_offset_x;
+@@ -8399,6 +8471,8 @@ int gpu_snapshot_read(const uint8_t *p, uint32_t len) {
+     ws_background_tags_used = 0;
+     ws_hud_anchor_clear(ws_reveal_clear_tags, WS_HUD_ANCHOR_TABLE_SIZE);
+     ws_hud_anchor_clear(ws_screen_mask_tags, WS_HUD_ANCHOR_TABLE_SIZE);
++    ws_hud_anchor_clear(ws_reveal_edge_tags, WS_HUD_ANCHOR_TABLE_SIZE);
++    ws_reveal_edge_tags_used = 0;
+     ws_radial_mask_clear(ws_radial_screen_mask_tags);
+     ws_repeat_rect_tag_clear(ws_repeat_rect_tags);
+     ws_repeat_rect_tag_clear(ws_feedback_rect_tags);
+@@ -8428,6 +8502,7 @@ typedef struct {
+     WsHudAnchorTag ws_background_tags[WS_HUD_ANCHOR_TABLE_SIZE];
+     WsHudAnchorTag ws_reveal_clear_tags[WS_HUD_ANCHOR_TABLE_SIZE];
+     WsHudAnchorTag ws_screen_mask_tags[WS_HUD_ANCHOR_TABLE_SIZE];
++    WsHudAnchorTag ws_reveal_edge_tags[WS_HUD_ANCHOR_TABLE_SIZE];
+     WsRadialScreenMaskTag ws_radial_screen_mask_tags[WS_RADIAL_MASK_TAG_COUNT];
+     WsRepeatRectTag ws_repeat_rect_tags[WS_REPEAT_RECT_TAG_TABLE_SIZE];
+     WsRepeatRectTag ws_feedback_rect_tags[WS_REPEAT_RECT_TAG_TABLE_SIZE];
+@@ -8439,6 +8514,7 @@ typedef struct {
+     int ws_auto_ui_dense, ws_shared_ui_copy;
+     uint32_t ws_background_tag_frame, ws_last_tag_stamp;
+     int ws_background_tags_used;
++    int ws_reveal_edge_tags_used;
+     uint32_t s_bg_phase_frame;
+     int s_bg_phase_over;
+     /* Synthetic GTE/GP0 draws update these signals, and native-wide target
+@@ -8473,6 +8549,7 @@ static void gpu_pass_provenance_transfer(int restore) {
+     PASS_ARRAY(ws_background_tags);
+     PASS_ARRAY(ws_reveal_clear_tags);
+     PASS_ARRAY(ws_screen_mask_tags);
++    PASS_ARRAY(ws_reveal_edge_tags);
+     PASS_ARRAY(ws_radial_screen_mask_tags);
+     PASS_ARRAY(ws_repeat_rect_tags);
+     PASS_ARRAY(ws_feedback_rect_tags);
+@@ -8484,6 +8561,7 @@ static void gpu_pass_provenance_transfer(int restore) {
+     PASS_VALUE(ws_shared_ui_copy);
+     PASS_VALUE(ws_background_tag_frame);
+     PASS_VALUE(ws_background_tags_used);
++    PASS_VALUE(ws_reveal_edge_tags_used);
+     PASS_VALUE(ws_last_tag_stamp);
+     PASS_VALUE(s_bg_phase_frame);
+     PASS_VALUE(s_bg_phase_over);
+diff --git a/runtime/src/mod_runtime.cpp b/runtime/src/mod_runtime.cpp
+index c2095254a35878c9b2b7380a29e84afa0d4742eb..a3c1b6db85fcb499e0f3e732243bd339de04d2c6 100644
+--- a/runtime/src/mod_runtime.cpp
++++ b/runtime/src/mod_runtime.cpp
+@@ -3852,6 +3852,9 @@ extern "C" void psx_mod_anchor_hud_primitive_projected(uint32_t primitive, int e
+ extern "C" void psx_mod_tag_screen_mask_quad(uint32_t primitive) {
+     gpu_ws_tag_screen_mask_quad(primitive);
+ }
++extern "C" void psx_mod_tag_reveal_edge_quad(uint32_t primitive, int edges) {
++    gpu_ws_tag_reveal_edge_quad(primitive, edges);
++}
+ extern "C" void psx_mod_tag_radial_screen_mask_quad(uint32_t primitive, float scale) {
+     gpu_ws_tag_radial_screen_mask_quad(primitive, scale);
+ }
+diff --git a/runtime/tests/test_mod_resident.cpp b/runtime/tests/test_mod_resident.cpp
+index 5bc21694c9b74ab63035a1459d9b2a860607e8cb..dd0a1e5cba2a5fd3abe0f8aa797b8289f22292fd 100644
+--- a/runtime/tests/test_mod_resident.cpp
++++ b/runtime/tests/test_mod_resident.cpp
+@@ -70,6 +70,7 @@ extern "C" int gpu_ws_configured_x_reveal(void) { return 0; }
+ extern "C" void gpu_ws_set_manual_view_anchor(int, int) {}
+ extern "C" void gpu_ws_tag_hud_prim(uint32_t, int) {}
+ extern "C" void gpu_ws_tag_screen_mask_quad(uint32_t) {}
++extern "C" void gpu_ws_tag_reveal_edge_quad(uint32_t, int) {}
+ extern "C" { uint64_t s_frame_count = 0; }
+ static uint64_t cycles;
+ extern "C" uint64_t psx_get_cycle_count(void) { return cycles; }
+diff --git a/runtime/tests/test_netplay_view_mods.cpp b/runtime/tests/test_netplay_view_mods.cpp
+index 25a086023d7f5dfb266cf2881c39b21809356e91..db2089179115b380c09f8f62482d5bf10fbbd19b 100644
+--- a/runtime/tests/test_netplay_view_mods.cpp
++++ b/runtime/tests/test_netplay_view_mods.cpp
+@@ -180,6 +180,7 @@ extern "C" int gpu_ws_configured_x_reveal(void) { return 0; }
+ extern "C" void gpu_ws_set_manual_view_anchor(int, int) {}
+ extern "C" void gpu_ws_tag_hud_prim(uint32_t, int) {}
+ extern "C" void gpu_ws_tag_screen_mask_quad(uint32_t) {}
++extern "C" void gpu_ws_tag_reveal_edge_quad(uint32_t, int) {}
+ extern "C" void gpu_ws_tag_radial_screen_mask_quad(uint32_t, float) {}
+ extern "C" void gpu_ws_tag_feedback_rect(uint32_t) {}
+ 
+diff --git a/runtime/tests/test_pgxp_session.cpp b/runtime/tests/test_pgxp_session.cpp
+index 4681b5898d288b1e1d366d7c5db4f6226f5d59a3..601481e80bac019200da0446afc9a04aed142a4b 100644
+--- a/runtime/tests/test_pgxp_session.cpp
++++ b/runtime/tests/test_pgxp_session.cpp
+@@ -158,6 +158,7 @@ extern "C" int gpu_ws_configured_x_reveal(void) { return 0; }
+ extern "C" void gpu_ws_set_manual_view_anchor(int, int) {}
+ extern "C" void gpu_ws_tag_hud_prim(uint32_t, int) {}
+ extern "C" void gpu_ws_tag_screen_mask_quad(uint32_t) {}
++extern "C" void gpu_ws_tag_reveal_edge_quad(uint32_t, int) {}
+ extern "C" void gpu_ws_tag_radial_screen_mask_quad(uint32_t, float) {}
+ extern "C" void gpu_ws_tag_feedback_rect(uint32_t) {}
+ /* mod_runtime.cpp's lobby netplay commit reads the negotiated match caps.
+diff --git a/runtime/tests/test_ws_reveal_edge.c b/runtime/tests/test_ws_reveal_edge.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..35f6f2aa8ac45d9c06b65252e002988ce6626c06
+--- /dev/null
++++ b/runtime/tests/test_ws_reveal_edge.c
+@@ -0,0 +1,151 @@
++#ifdef NDEBUG
++#undef NDEBUG
++#endif
++#include <assert.h>
++#include <stdio.h>
++#include "ws_reveal_edge.h"
++#include "ws_hud_anchor.h"
++
++/* Bands only extend an outer boundary that already reaches the canonical
++ * edge, only on requested sides, never overlap the quad and never touch a
++ * full-frame quad (the renderer's single full-screen path owns that). */
++static void test_geometry(void) {
++    WsScreenMaskBand b[2];
++    /* A menu bar authored from x=-20 to 532 on a 512-wide display. */
++    int32_t x[4] = {-20, 532, -20, 532}, y[4] = {-20, -20, 42, 42};
++    assert(ws_reveal_edge_bands(x, y, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b) == 2);
++    assert(b[0].x == -85 && b[0].w == 65 && b[0].y == -20 && b[0].h == 62);
++    assert(b[1].x == 532 && b[1].w == 65 && b[1].y == -20 && b[1].h == 62);
++    assert(ws_reveal_edge_bands(x, y, 512, 256, 85, WS_REVEAL_EDGE_LEFT, b) == 1);
++    assert(b[0].x == -85 && b[0].w == 65);
++    assert(ws_reveal_edge_bands(x, y, 512, 256, 85, WS_REVEAL_EDGE_RIGHT, b) == 1);
++    assert(b[0].x == 532 && b[0].w == 65);
++    assert(ws_reveal_edge_bands(x, y, 512, 256, 85, 0, b) == 0);
++
++    /* Divider line: only the end at the display edge grows; the interior end
++     * at x=46 (joined to a curved piece) stays where it was authored. */
++    int32_t lx[4] = {46, 532, 46, 532}, ly[4] = {24, 24, 25, 25};
++    assert(ws_reveal_edge_bands(lx, ly, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b) == 1);
++    assert(b[0].x == 532 && b[0].w == 65 && b[0].y == 24 && b[0].h == 1);
++
++    /* Tint halves in the middle of the screen: each grows on its outer side. */
++    int32_t tx[4] = {-30, 256, -30, 256}, ty[4] = {43, 43, 213, 213};
++    assert(ws_reveal_edge_bands(tx, ty, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b) == 1);
++    assert(b[0].x == -85 && b[0].w == 55 && b[0].y == 43 && b[0].h == 170);
++    tx[0] = tx[2] = 256; tx[1] = tx[3] = 542;
++    assert(ws_reveal_edge_bands(tx, ty, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b) == 1);
++    assert(b[0].x == 542 && b[0].w == 55);
++
++    /* Exactly on the edge grows by the whole margin. */
++    int32_t ex[4] = {0, 512, 0, 512}, ey[4] = {10, 10, 20, 20};
++    assert(ws_reveal_edge_bands(ex, ey, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b) == 2);
++    assert(b[0].x == -85 && b[0].w == 85 && b[1].x == 512 && b[1].w == 85);
++
++    /* Interior quad, or one already covering the reveal: nothing to add. */
++    int32_t ix[4] = {1, 511, 1, 511};
++    assert(!ws_reveal_edge_bands(ix, ey, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b));
++    int32_t cx[4] = {-128, 641, -128, 641};
++    assert(!ws_reveal_edge_bands(cx, ey, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b));
++    cx[0] = cx[2] = -85; cx[1] = cx[3] = 597;
++    assert(!ws_reveal_edge_bands(cx, ey, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b));
++
++    /* Full-frame quad belongs to the renderer's full-screen expansion. */
++    int32_t fx[4] = {0, 512, 0, 512}, fy[4] = {0, 0, 256, 256};
++    assert(!ws_reveal_edge_bands(fx, fy, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b));
++    fy[0] = fy[1] = 1;   /* not full height: a panel again */
++    assert(ws_reveal_edge_bands(fx, fy, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b) == 2);
++
++    /* Mirrored quads are still axis aligned. */
++    int32_t mx[4] = {532, -20, 532, -20};
++    assert(ws_reveal_edge_bands(mx, y, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b) == 2);
++
++    /* Slanted, degenerate, no reveal, bad display. */
++    int32_t sx[4] = {-20, 532, -10, 532};
++    assert(!ws_reveal_edge_bands(sx, y, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b));
++    int32_t sy[4] = {-20, -19, 42, 42};
++    assert(!ws_reveal_edge_bands(x, sy, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b));
++    int32_t zy[4] = {5, 5, 5, 5};
++    assert(!ws_reveal_edge_bands(x, zy, 512, 256, 85, WS_REVEAL_EDGE_BOTH, b));
++    assert(!ws_reveal_edge_bands(x, y, 512, 256, 0, WS_REVEAL_EDGE_BOTH, b));
++    assert(!ws_reveal_edge_bands(x, y, 0, 256, 85, WS_REVEAL_EDGE_BOTH, b));
++    assert(!ws_reveal_edge_bands(x, y, 512, 256, 85, WS_REVEAL_EDGE_BOTH, NULL));
++
++    /* Every band stays inside [-margin, width + margin) and off the quad. */
++    for (int margin = 1; margin < 400; margin += 7)
++        for (int left = -margin - 5; left <= 5; left += 3) {
++            int32_t qx[4] = {left, 600, left, 600}, qy[4] = {3, 3, 9, 9};
++            int n = ws_reveal_edge_bands(qx, qy, 512, 256, margin,
++                                         WS_REVEAL_EDGE_BOTH, b);
++            for (int i = 0; i < n; i++) {
++                assert(b[i].w > 0 && b[i].x >= -margin);
++                assert(b[i].x + b[i].w <= 512 + margin);
++                assert(b[i].x + b[i].w <= left || b[i].x >= 600);
++            }
++        }
++}
++
++static void test_packets(void) {
++    /* Flat quad, opaque and translucent. */
++    uint32_t f4[5] = {0x28284759u, 0, 0, 0, 0};
++    assert(ws_reveal_edge_packet_ok(f4, 5));
++    f4[0] = 0x2A284759u;
++    assert(ws_reveal_edge_packet_ok(f4, 5));
++    assert(!ws_reveal_edge_packet_ok(f4, 4));
++    /* Textured quad with one texel (108,77) in all four UVs. */
++    uint32_t ft4[9] = {0x2C808080u, 0, 0x7EE24D6Cu, 0, 0x00094D6Cu,
++                       0, 0x00004D6Cu, 0, 0x00004D6Cu};
++    assert(ws_reveal_edge_packet_ok(ft4, 9));
++    ft4[0] = 0x2E808080u;
++    assert(ws_reveal_edge_packet_ok(ft4, 9));
++    for (int i = 2; i <= 8; i += 2) {   /* any differing texel rejects */
++        ft4[i] ^= 1u;
++        assert(!ws_reveal_edge_packet_ok(ft4, 9));
++        ft4[i] ^= 1u;
++    }
++    assert(!ws_reveal_edge_packet_ok(ft4, 8));
++    /* Other primitives: triangles, Gouraud, sprites, lines. */
++    const uint32_t ops[] = {0x20, 0x24, 0x30, 0x38, 0x3C, 0x40, 0x60, 0x64};
++    for (unsigned i = 0; i < sizeof ops / sizeof ops[0]; i++) {
++        uint32_t w[12] = {ops[i] << 24};
++        for (uint32_t n = 1; n <= 12; n++) assert(!ws_reveal_edge_packet_ok(w, n));
++    }
++    assert(!ws_reveal_edge_packet_ok(NULL, 5));
++}
++
++static void test_tag_storage(void) {
++    /* The side set survives the clamped anchor field of the tag table. */
++    for (int e = WS_REVEAL_EDGE_LEFT; e <= WS_REVEAL_EDGE_BOTH; e++)
++        assert(ws_reveal_edge_from_anchor(
++                   ws_hud_anchor_clamp(ws_reveal_edge_to_anchor(e))) == e);
++
++    /* Packet guard and lifetime are the shared anchor-table rules. */
++    WsHudAnchorTag tags[WS_HUD_ANCHOR_TABLE_SIZE] = {0};
++    uint32_t words[5] = {0x2A284759u, 0xFFE2002Bu, 0x00E20100u,
++                         0x00D5FFE2u, 0x00D50100u};
++    WsPrepassPacketGuard guard = ws_prepass_packet_guard(words, 5);
++    ws_hud_anchor_insert(tags, WS_HUD_ANCHOR_TABLE_SIZE, 0x104B88u,
++                         ws_reveal_edge_to_anchor(WS_REVEAL_EDGE_RIGHT),
++                         &guard, 40);
++    int anchor = 0;
++    assert(ws_hud_anchor_lookup(tags, WS_HUD_ANCHOR_TABLE_SIZE, 0x104B88u,
++                                words, 5, 40, &anchor));
++    assert(ws_reveal_edge_from_anchor(anchor) == WS_REVEAL_EDGE_RIGHT);
++    assert(ws_hud_anchor_lookup(tags, WS_HUD_ANCHOR_TABLE_SIZE, 0x104B88u,
++                                words, 5, 40 + WS_HUD_ANCHOR_FRESH_FRAMES, NULL));
++    assert(!ws_hud_anchor_lookup(tags, WS_HUD_ANCHOR_TABLE_SIZE, 0x104B88u,
++                                 words, 5, 41 + WS_HUD_ANCHOR_FRESH_FRAMES, NULL));
++    for (int i = 0; i < 5; i++) {
++        words[i] ^= 0x10u;
++        assert(!ws_hud_anchor_lookup(tags, WS_HUD_ANCHOR_TABLE_SIZE, 0x104B88u,
++                                     words, 5, 40, NULL));
++        words[i] ^= 0x10u;
++    }
++}
++
++int main(void) {
++    test_geometry();
++    test_packets();
++    test_tag_storage();
++    puts("ws_reveal_edge_test: PASS");
++    return 0;
++}
+diff --git a/runtime/tests/test_ws_reveal_edge_exec.c b/runtime/tests/test_ws_reveal_edge_exec.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..57afd80d4d88cac45021e04cd1f4ccab46fcebd3
+--- /dev/null
++++ b/runtime/tests/test_ws_reveal_edge_exec.c
+@@ -0,0 +1,292 @@
++#ifdef NDEBUG
++#undef NDEBUG
++#endif
++
++/* Reveal-edge quads through the real GP0 handlers: tagged flat and one-texel
++ * textured quads add bands only outside the authored quad, with the quad's
++ * blend, CLUT, texture page and texel, while the original draw, guest RAM and
++ * every untagged or invalid case stay exactly as before. */
++
++#include <assert.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++
++#include "../src/gpu.c"
++
++/* Record the renderer calls this test observes instead of the shared stubs. */
++#define gr_draw_flat_rect reveal_stub_flat_rect
++#define gr_draw_textured_rect_scaled reveal_stub_scaled_rect
++#define gr_set_semi_transparency reveal_stub_semi
++#define gr_set_color_modulation reveal_stub_modulation
++#include "gpu_exec_stubs.inc"
++#undef gr_draw_flat_rect
++#undef gr_draw_textured_rect_scaled
++#undef gr_set_semi_transparency
++#undef gr_set_color_modulation
++
++typedef struct { int x, y, w, h, u0, v0, u1, v1, clut_x, clut_y, tpage, semi, mode; uint16_t color; } Rect;
++static Rect flat_rects[8], scaled_rects[8];
++static int flat_count, scaled_count, cur_semi, cur_mode, cur_r, cur_g, cur_b;
++
++void gr_set_semi_transparency(int enabled, int mode) { cur_semi = enabled; cur_mode = mode; }
++void gr_set_color_modulation(int r, int g, int b, int raw_texture) {
++    (void)raw_texture; cur_r = r; cur_g = g; cur_b = b;
++}
++void gr_draw_flat_rect(int x, int y, int w, int h, uint16_t color) {
++    assert(flat_count < 8);
++    flat_rects[flat_count++] = (Rect){x, y, w, h, 0, 0, 0, 0, 0, 0, 0, cur_semi, cur_mode, color};
++}
++void gr_draw_textured_rect_scaled(int x, int y, int w, int h, int u0, int v0,
++                                  int u1, int v1, uint16_t clut_x,
++                                  uint16_t clut_y, uint16_t texpage) {
++    assert(scaled_count < 8);
++    scaled_rects[scaled_count++] = (Rect){x, y, w, h, u0, v0, u1, v1, clut_x,
++                                          clut_y, texpage, cur_semi, cur_mode, 0};
++}
++
++static uint32_t pack_vertex(int x, int y) {
++    return (uint16_t)(int16_t)x | ((uint32_t)(uint16_t)(int16_t)y << 16);
++}
++
++/* Display and draw registers of a 320-wide frame buffer at VRAM (0,0). */
++static void apply_test_registers(void) {
++    gp0_cmd_source_addr = 0xFFFFFFFFu;
++    draw_offset_x = 0;
++    draw_offset_y = 0;
++    draw_area_left = 0;
++    draw_area_top = 0;
++    draw_area_right = 1023;
++    draw_area_bottom = 511;
++    hres1 = 1;
++    hres2 = 0;
++    video_mode = 0;
++    display_depth = 0;
++    display_disabled = 0;
++    display_area_x = 0;
++    display_area_y = 0;
++    h_display_x1 = 0x200;
++    h_display_x2 = 0xC00;
++    v_display_y1 = 0x010;
++    v_display_y2 = 0x100;
++    semi_transparency = 2;
++    ws_mode = 0;
++    ws_cfg_num = 4;
++    ws_cfg_den = 3;
++    ws_xnum = 1;
++    ws_xden = 1;
++    ws_full_2d = 0;
++}
++
++static void reset_gpu_state_for_test(void) {
++    memset(test_ram, 0, sizeof(test_ram));
++    gpu_reset_state(0);
++    s_frame_count = 100;
++    apply_test_registers();
++}
++
++static void configure_native_wide_16_9(void) {
++    ws_mode = 2;
++    ws_cfg_num = 16;
++    ws_cfg_den = 9;
++    ws_full_2d = 1;
++}
++
++/* Place a packet at command address `addr` and execute it. */
++static void exec_packet(uint32_t addr, const uint32_t *words, uint32_t n) {
++    memcpy(&test_ram[addr / 4u], words, n * sizeof(uint32_t));
++    memcpy(gp0_cmd_buf, words, n * sizeof(uint32_t));
++    gp0_cmd_source_addr = addr;
++    gp0_words_needed = (int)n;
++    flat_count = scaled_count = 0;
++    gpu_exec_reset_triangles();
++    if (((words[0] >> 24) & 0xFCu) == 0x28u) gp0_exec_mono_quad();
++    else gp0_exec_textured_quad();
++}
++
++#define TINT_ADDR 0x00010004u
++#define BAR_ADDR  0x00010104u
++#define LINE_ADDR 0x00010204u
++
++static void tint_packet(uint32_t w[5], int x0, int x1) {
++    w[0] = 0x2A284759u;
++    w[1] = pack_vertex(x0, 43); w[2] = pack_vertex(x1, 43);
++    w[3] = pack_vertex(x0, 213); w[4] = pack_vertex(x1, 213);
++}
++
++/* One-texel bar: texel (108,77), CLUT (544,508), texture page 9. */
++static void bar_packet(uint32_t w[9], int x0, int x1, int y0, int y1, int texel_v) {
++    const uint32_t uv = 108u | ((uint32_t)texel_v << 8);
++    const uint32_t clut = (544u / 16u) | (508u << 6);
++    w[0] = 0x2C808080u;
++    w[1] = pack_vertex(x0, y0); w[2] = uv | (clut << 16);
++    w[3] = pack_vertex(x1, y0); w[4] = uv | (9u << 16);
++    w[5] = pack_vertex(x0, y1); w[6] = uv;
++    w[7] = pack_vertex(x1, y1); w[8] = uv;
++}
++
++static void test_translucent_tint(int W, int M) {
++    uint32_t w[5];
++    tint_packet(w, -30, W / 2);
++    reset_gpu_state_for_test();
++    configure_native_wide_16_9();
++    exec_packet(TINT_ADDR, w, 5);                      /* untagged reference */
++    assert(flat_count == 1);
++    const Rect original = flat_rects[0];
++    assert(original.x == -30 && original.w == W / 2 + 30 && original.y == 43 && original.h == 170);
++
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    exec_packet(TINT_ADDR, w, 5);
++    assert(flat_count == 2);
++    /* Band first, then the untouched original; same colour, same blend. */
++    assert(flat_rects[0].x == -M && flat_rects[0].w == M - 30);
++    assert(flat_rects[0].y == 43 && flat_rects[0].h == 170);
++    assert(flat_rects[0].color == original.color);
++    assert(flat_rects[0].semi == 1 && flat_rects[0].mode == 2);
++    assert(memcmp(&flat_rects[1], &original, sizeof original) == 0);
++    /* The band ends where the quad begins: no overlap, no double blend. */
++    assert(flat_rects[0].x + flat_rects[0].w == original.x);
++
++    uint32_t ram[5];
++    memcpy(ram, &test_ram[TINT_ADDR / 4u], sizeof ram);
++    assert(memcmp(ram, w, sizeof ram) == 0);           /* guest packet unchanged */
++}
++
++static void test_one_texel_bar(int W, int M) {
++    uint32_t w[9];
++    bar_packet(w, -20, W + 20, -20, 42, 77);
++    reset_gpu_state_for_test();
++    configure_native_wide_16_9();
++    draw_offset_y = 8;
++    exec_packet(BAR_ADDR, w, 9);
++    assert(scaled_count == 1);                          /* original only */
++    const Rect original = scaled_rects[0];
++
++    gpu_ws_tag_reveal_edge_quad(0x80000000u | (BAR_ADDR - 4u), WS_REVEAL_EDGE_BOTH);
++    exec_packet(BAR_ADDR, w, 9);
++    assert(scaled_count == 3);
++    for (int i = 0; i < 2; i++) {
++        const Rect *b = &scaled_rects[i];
++        assert(b->u0 == 108 && b->u1 == 108 && b->v0 == 77 && b->v1 == 77);
++        assert(b->clut_x == 544 && b->clut_y == 508 && b->tpage == 9);
++        assert(b->y == -20 + 8 && b->h == 62);
++    }
++    assert(scaled_rects[0].x == -M && scaled_rects[0].w == M - 20);
++    assert(scaled_rects[1].x == W + 20 && scaled_rects[1].w == M - 20);
++    assert(memcmp(&scaled_rects[2], &original, sizeof original) == 0);
++    assert(cur_r == 0x80 && cur_g == 0x80 && cur_b == 0x80);
++
++    /* A line whose inner end joins other artwork grows only at the edge. */
++    uint32_t l[9];
++    bar_packet(l, 46, W + 20, 24, 25, 72);
++    memcpy(&test_ram[LINE_ADDR / 4u], l, sizeof l);
++    gpu_ws_tag_reveal_edge_quad(LINE_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    exec_packet(LINE_ADDR, l, 9);
++    assert(scaled_count == 2);
++    assert(scaled_rects[0].x == W + 20 && scaled_rects[0].w == M - 20);
++    assert(scaled_rects[1].x == 46);
++}
++
++static void test_rejections(int W) {
++    uint32_t w[9], t[5];
++    bar_packet(w, -20, W + 20, -20, 42, 77);
++    tint_packet(t, -30, W / 2);
++
++    /* Native 4:3: nothing is tagged, nothing grows. */
++    reset_gpu_state_for_test();
++    memcpy(&test_ram[BAR_ADDR / 4u], w, sizeof w);
++    gpu_ws_tag_reveal_edge_quad(BAR_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    assert(!ws_reveal_edge_tags_used);
++    exec_packet(BAR_ADDR, w, 9);
++    assert(scaled_count == 1);
++
++    /* Two texels, bad alignment, no side, wrong primitive. */
++    reset_gpu_state_for_test();
++    configure_native_wide_16_9();
++    w[8] ^= 1u;
++    memcpy(&test_ram[BAR_ADDR / 4u], w, sizeof w);
++    gpu_ws_tag_reveal_edge_quad(BAR_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    w[8] ^= 1u;
++    memcpy(&test_ram[TINT_ADDR / 4u], t, sizeof t);
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 2u, WS_REVEAL_EDGE_BOTH);
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, 0);
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, 4);
++    const uint32_t tri[4] = {0x20284759u, pack_vertex(-30, 43), pack_vertex(9, 43), pack_vertex(-30, 99)};
++    memcpy(&test_ram[LINE_ADDR / 4u], tri, sizeof tri);
++    gpu_ws_tag_reveal_edge_quad(LINE_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    assert(!ws_reveal_edge_tags_used);
++
++    /* Tagged, then the packet changes: the guard drops the tag. */
++    memcpy(&test_ram[TINT_ADDR / 4u], t, sizeof t);
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    t[1] = pack_vertex(-31, 43); t[3] = pack_vertex(-31, 213);
++    exec_packet(TINT_ADDR, t, 5);
++    assert(flat_count == 1);
++
++    /* Expiry after the shared freshness window. */
++    tint_packet(t, -30, W / 2);
++    memcpy(&test_ram[TINT_ADDR / 4u], t, sizeof t);
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    s_frame_count += WS_HUD_ANCHOR_FRESH_FRAMES;
++    exec_packet(TINT_ADDR, t, 5);
++    assert(flat_count == 2);
++    s_frame_count += 1;
++    exec_packet(TINT_ADDR, t, 5);
++    assert(flat_count == 1);
++
++    /* Native-wide switched off after tagging. */
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    ws_mode = 0;
++    exec_packet(TINT_ADDR, t, 5);
++    assert(flat_count == 1);
++    configure_native_wide_16_9();
++
++    /* An explicit HUD anchor on the same packet wins. */
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    gpu_ws_tag_hud_prim(TINT_ADDR - 4u, 1);
++    exec_packet(TINT_ADDR, t, 5);
++    assert(flat_count == 1);
++}
++
++static void test_reset_and_savestate(int W) {
++    uint32_t t[5];
++    tint_packet(t, -30, W / 2);
++    reset_gpu_state_for_test();
++    configure_native_wide_16_9();
++    memcpy(&test_ram[TINT_ADDR / 4u], t, sizeof t);
++
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    gpu_reset_state(0);
++    apply_test_registers();
++    configure_native_wide_16_9();
++    assert(!ws_reveal_edge_tags_used);
++    exec_packet(TINT_ADDR, t, 5);
++    assert(flat_count == 1);
++
++    static uint8_t snap[1u << 22];
++    const uint32_t n = gpu_snapshot_bytes();
++    assert(n <= sizeof snap);
++    gpu_snapshot_write(snap);
++    gpu_ws_tag_reveal_edge_quad(TINT_ADDR - 4u, WS_REVEAL_EDGE_BOTH);
++    exec_packet(TINT_ADDR, t, 5);
++    assert(flat_count == 2);
++    assert(gpu_snapshot_read(snap, n));
++    configure_native_wide_16_9();
++    assert(!ws_reveal_edge_tags_used);
++    exec_packet(TINT_ADDR, t, 5);
++    assert(flat_count == 1);
++}
++
++int main(void) {
++    reset_gpu_state_for_test();
++    configure_native_wide_16_9();
++    assert(ws_native_wide_active());
++    const int W = (int)ws_disp_w(), M = (int)draw_area_wide_x_margin();
++    assert(W > 0 && M > 30);
++    test_translucent_tint(W, M);
++    test_one_texel_bar(W, M);
++    test_rejections(W);
++    test_reset_and_savestate(W);
++    printf("ws_reveal_edge_exec_test: PASS (display %d, reveal %d)\n", W, M);
++    return 0;
++}

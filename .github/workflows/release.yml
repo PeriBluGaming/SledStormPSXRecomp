@@ -221,6 +221,15 @@ jobs:
         shell: bash
         run: bash psxrecomp/tools/ci/record_pins.sh
 
+      # Local framework patches (patches/psxrecomp/, see its README): checks the
+      # pinned revision, applies the series to the submodule working tree only
+      # and logs each patch's SHA-256. The gitlink is untouched. Must precede
+      # every configure/build step; the emitters are unaffected (no recompiler
+      # files are patched), so their psxrecomp-SHA cache key stays valid.
+      - name: Apply framework patches
+        shell: bash
+        run: bash scripts/apply_framework_patches.sh
+
       # game.toml, CMakeLists GEN_MARKER and codegen_setup.c each carry the
       # boot-EXE name; the committed generated/ files are named after it, so a
       # skew means the build looks for C the checkout does not have.

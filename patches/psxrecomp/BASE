@@ -1,0 +1,3 @@
+# psxrecomp revision every patch in this directory is made against (full SHA).
+# scripts/apply_framework_patches.sh refuses any other submodule revision.
+c1f5cafd4102daa57b7342bec7c432aaca8981ce
