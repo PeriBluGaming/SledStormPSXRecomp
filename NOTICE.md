@@ -112,6 +112,9 @@ does not cover them.
   sites listed in `game.toml`; `generated/` is never edited by hand. No
   license to it is granted by this project. The same applies to the compiled
   game inside release executables.
+- `docs/screenshots/`: screenshots of the game running in this project, used
+  in `README.md`. They show copyrighted *Sled Storm* imagery and are not
+  covered by this project's PolyForm Noncommercial license or by `LICENSE`.
 
 **Publishing `generated/` is a separate copyright question.** Whether
 machine-translated game code may be published or redistributed at all depends
