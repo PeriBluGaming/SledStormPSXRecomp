@@ -5,13 +5,13 @@
 *Sled Storm* (PlayStation, 1999), statically recompiled into a native
 executable for Windows, Linux and macOS, with optional native widescreen.
 
-![Sled Storm title screen running in native 16:9 widescreen](docs/screenshots/title-16x9.png)
-
 <!-- retcomm-readme-metrics -->
 [![GitHub downloads (all assets, all releases)](https://img.shields.io/github/downloads/PeriBluGaming/SledStormPSXRecomp/total)](https://github.com/PeriBluGaming/SledStormPSXRecomp/releases)
 [![GitHub downloads (latest release)](https://img.shields.io/github/downloads/PeriBluGaming/SledStormPSXRecomp/latest/total)](https://github.com/PeriBluGaming/SledStormPSXRecomp/releases/latest)
 [![GitHub release](https://img.shields.io/github/v/release/PeriBluGaming/SledStormPSXRecomp)](https://github.com/PeriBluGaming/SledStormPSXRecomp/releases/latest)
 <!-- /retcomm-readme-metrics -->
+
+![Sled Storm title screen running in native 16:9 widescreen](docs/screenshots/title-16x9.png)
 
 ## Highlights
 
