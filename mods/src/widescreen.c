@@ -7,9 +7,10 @@
 #include "gpu.h"
 #include "mod_plugins.h"
 
-/* Native 16:9 for single-player races. The runtime widens the draw area and
- * display instead of squashing the GTE projection, so the track and the
- * sleds keep their proportions. Everything else stays at native 4:3. */
+/* Native 16:9 for single-player races and, optionally, for frontend screens
+ * with a 3D background. The runtime widens the draw area and display instead
+ * of squashing the GTE projection, so the track and the sleds keep their
+ * proportions. Everything else stays at native 4:3. */
 
 /* Game state, measured at runtime (PAL SLES-02194):
  * 0x800D6980 is 1 during a race (also while paused), 0 on the title, menus
@@ -36,11 +37,32 @@ static int ss_single_player_race(void)
            psx_mod_read_word(SS_VIEW0_BOUND) == SS_FULL_VIEW_BOUND;
 }
 
+/* Frontend screens with the live 3D background (option "widescreen-menus").
+ * ss_menu_wide is set at VBlank once the frame pieces of both ordering
+ * tables are verified; see the widescreen menus section below. */
+static int ss_menus_enabled;
+static int ss_menu_wide;
+
+static int ss_frontend_scene(void)
+{
+    const uint32_t mode = psx_mod_read_word(SS_FRONTEND_MODE);
+    return psx_mod_read_word(SS_RACE_ACTIVE) == 0u && (mode == 1u || mode == 2u) &&
+           psx_mod_read_word(SS_VIEW0_BOUND) == SS_FULL_VIEW_BOUND;
+}
+
+/* Scenes rendered native-wide: single-player races and, with the option on,
+ * verified frontend scenes. Presentation and the cull hooks share it. */
+static int ss_wide_scene(void)
+{
+    return ss_single_player_race() ||
+           (ss_menus_enabled && ss_menu_wide && ss_frontend_scene());
+}
+
 /* Presentation: nonzero keeps the frame at native 4:3. Anything that is not
- * a verified single-player race, including unknown states, stays 4:3. */
+ * a verified wide scene, including unknown states, stays 4:3. */
 static int widescreen_force_native_43(void)
 {
-    return !ss_single_player_race();
+    return !ss_wide_scene();
 }
 
 /* Track renderer cull. The four track triangle renderers (0x8007EAA4,
@@ -102,7 +124,7 @@ static void widescreen_track_cull(struct CPUState* cpu, uint32_t address)
     const int32_t margin = psx_mod_widescreen_x_margin();
     if (margin <= 0)
         return;
-    if (cpu->gpr[SS_REG_S6] != SS_FULL_VIEW_BOUND || !ss_single_player_race()) {
+    if (cpu->gpr[SS_REG_S6] != SS_FULL_VIEW_BOUND || !ss_wide_scene()) {
         psx_mod_counter_add("sledstorm.widescreen.cull.stock_view", 1u);
         return;
     }
@@ -402,22 +424,239 @@ static void widescreen_hud_vblank(void)
     ss_tag_hud_context(SS_OT_CONTEXT_B, ui_table, layer, map_ok);
 }
 
+/* Widescreen menus (option "widescreen-menus"). Behind most frontend screens
+ * the game draws a live 3D scene (0x800C3CA0 = 1 or 2) with the race
+ * renderer, framed by 2D pieces from the frontend UI table (16000 bytes,
+ * "front_end_polys", allocated by 0x800425B4): one-texel blue bars and gold
+ * lines (POLY_FT4), translucent tint halves (POLY_F4, GP0 0x2A) and torn
+ * edge strips whose 128-pixel tiles already run from x -128 to 641. The
+ * pieces may sit on any ordering-table entry (the character select uses
+ * entry 400), so the whole table is walked.
+ *
+ * A frontend frame goes wide only when every visible piece that touches a
+ * 4:3 side edge is known: bars, lines and tints grow into the reveal through
+ * psx_mod_tag_reveal_edge_quad; torn-edge tiles and the buttons and logos
+ * that slide in and out keep their authored pixels, which the reveal simply
+ * shows further (except the large title logo, below). A textured piece that
+ * spans both edges or is tall (a 2D background) and an opaque flat panel keep
+ * the frame at 4:3. Both frame contexts must pass (the one waiting for
+ * DrawOTag and the one on screen), the frame goes wide only after two VBlanks
+ * agree and falls back to 4:3 at the first failure. */
+#define SS_FE_UI_TABLE_BYTES 16000u
+#define SS_FE_WIDTH          512
+#define SS_FE_HEIGHT         256
+#define SS_FE_BACKDROP_MIN_H 128  /* textured pieces this tall over an edge */
+#define SS_FE_PIECES_MAX     64
+#define SS_OT_WALK_ALL_MAX   (SS_OT_ENTRIES + 4096u)
+#define SS_MENU_AGREE        2
+
+enum { SS_PIECE_KEEP, SS_PIECE_EXTEND, SS_PIECE_UNKNOWN };
+
+static int ss_menu_streak;   /* consecutive VBlanks with a verified frame */
+
+static int ss_classify_frame_piece(uint32_t packet)
+{
+    const uint32_t len = psx_mod_read_word(packet) >> 24;
+    const uint8_t code = psx_mod_read_byte(packet + 7u);
+    ss_box box;
+    int flat = 0, one_texel = 0;
+    if (len == 9u && (code & 0xFCu) == 0x2Cu) {
+        if (!ss_ft4_box(packet, &box))
+            return SS_PIECE_KEEP;
+        const uint16_t uv = psx_mod_read_half(packet + 12u);
+        one_texel = psx_mod_read_half(packet + 20u) == uv &&
+                    psx_mod_read_half(packet + 28u) == uv &&
+                    psx_mod_read_half(packet + 36u) == uv;
+    } else if (len == 5u && (code & 0xFCu) == 0x28u) {
+        box = (ss_box){ INT16_MAX, INT16_MAX, INT16_MIN, INT16_MIN };
+        for (uint32_t v = 0; v < 4u; ++v) {
+            const int16_t x = (int16_t)psx_mod_read_half(packet + 8u + 4u * v);
+            const int16_t y = (int16_t)psx_mod_read_half(packet + 10u + 4u * v);
+            if (x < box.x0) box.x0 = x;
+            if (x > box.x1) box.x1 = x;
+            if (y < box.y0) box.y0 = y;
+            if (y > box.y1) box.y1 = y;
+        }
+        flat = 1;
+    } else {
+        return SS_PIECE_KEEP;
+    }
+    if (box.y1 <= 0 || box.y0 >= SS_FE_HEIGHT)
+        return SS_PIECE_KEEP;                   /* off screen vertically */
+    const int left = box.x0 <= 0, right = box.x1 >= SS_FE_WIDTH;
+    if (!left && !right)
+        return SS_PIECE_KEEP;                   /* inside 4:3: stays centred */
+    if (box.x1 <= 0 || box.x0 >= SS_FE_WIDTH)
+        return SS_PIECE_KEEP;                   /* wholly beside the picture */
+    if (flat)
+        return (code & 2u) ? SS_PIECE_EXTEND : SS_PIECE_UNKNOWN;
+    if (one_texel)
+        return SS_PIECE_EXTEND;
+    /* Spanning both edges means a full-width piece that cannot be grown. */
+    if ((left && right) || box.y1 - box.y0 >= SS_FE_BACKDROP_MIN_H)
+        return SS_PIECE_UNKNOWN;
+    return SS_PIECE_KEEP;
+}
+
+/* The large title logo: nine POLY_FT4 pieces that slide right as one group
+ * when the attract sequence starts and park just past the 4:3 edge (x 518 to
+ * 820), inside the 16:9 reveal, before moving further out. A piece wholly
+ * beside the 4:3 picture is pushed one reveal further out with a HUD anchor,
+ * so it is hidden exactly as at 4:3; pieces still crossing the edge keep
+ * their pixels. Texture page, CLUT and size identify each piece; the small
+ * corner logo uses other pages and CLUTs. */
+#define SS_BIG_LOGO_PIECES 9u
+
+static const struct {
+    uint16_t tpage, clut;
+    int16_t w, h;
+} ss_big_logo[SS_BIG_LOGO_PIECES] = {
+    { 0x004Eu, 0x5CA0u, 188, 23 }, { 0x004Fu, 0x5CA1u,  76, 54 },
+    { 0x004Eu, 0x5CA2u, 244, 23 }, { 0x004Fu, 0x5CA3u,  44, 35 },
+    { 0x004Fu, 0x5C60u,  44, 40 }, { 0x008Eu, 0x3EB0u, 128, 47 },
+    { 0x008Eu, 0x3E70u,  90, 39 }, { 0x008Fu, 0x3E30u,  50, 91 },
+    { 0x008Eu, 0x3DF0u, 114, 72 },
+};
+
+/* +1 or -1 for a large-logo piece wholly right or left of the 4:3 picture. */
+static int ss_big_logo_offscreen_edge(uint32_t packet)
+{
+    ss_box box;
+    if (!ss_ft4_box(packet, &box))
+        return 0;
+    const uint16_t clut = psx_mod_read_half(packet + 14u);
+    const uint16_t tpage = psx_mod_read_half(packet + 22u);
+    for (unsigned i = 0; i < SS_BIG_LOGO_PIECES; ++i) {
+        if (ss_big_logo[i].tpage == tpage && ss_big_logo[i].clut == clut &&
+            box.x1 - box.x0 == ss_big_logo[i].w && box.y1 - box.y0 == ss_big_logo[i].h) {
+            if (box.x0 >= SS_FE_WIDTH) return 1;
+            if (box.x1 <= 0) return -1;
+            return 0;
+        }
+    }
+    return 0;
+}
+
+/* Packets of both contexts to tag once the frame is verified. */
+typedef struct {
+    unsigned extend_count, logo_count;
+    uint32_t extend[2u * SS_FE_PIECES_MAX];
+    uint32_t logo[2u * SS_BIG_LOGO_PIECES];
+    int8_t logo_edge[2u * SS_BIG_LOGO_PIECES];
+} ss_frontend_tags;
+
+/* Walk one context's whole ordering table read-only and collect the frame
+ * pieces to extend and the large-logo pieces to push out. 0 on an unknown
+ * piece or a broken walk. */
+static int ss_scan_frontend_context(uint32_t context, uint32_t ui_table,
+                                    ss_frontend_tags* tags)
+{
+    const uint32_t ot = context + SS_OT_ARRAY_OFFSET;
+    const uint32_t ot_end = ot + 4u * SS_OT_ENTRIES;
+    uint32_t link = psx_mod_read_word(ot_end - 4u) & 0xFFFFFFu;
+
+    for (unsigned steps = 0; link != 0xFFFFFFu; ++steps) {
+        if (steps >= SS_OT_WALK_ALL_MAX || (link & 3u) || link >= 0x200000u) {
+            psx_mod_counter_add("sledstorm.widescreen.menu.walk_abort", 1u);
+            return 0;
+        }
+        const uint32_t packet = 0x80000000u | link;
+        link = psx_mod_read_word(packet) & 0xFFFFFFu;
+        if ((packet >= ot && packet < ot_end) || packet < ui_table ||
+            packet >= ui_table + SS_FE_UI_TABLE_BYTES || (packet - ui_table) % 40u != 0u)
+            continue;
+        switch (ss_classify_frame_piece(packet)) {
+        case SS_PIECE_UNKNOWN:
+            return 0;
+        case SS_PIECE_EXTEND:
+            if (tags->extend_count >= 2u * SS_FE_PIECES_MAX)
+                return 0;
+            tags->extend[tags->extend_count++] = packet;
+            break;
+        default: {
+            const int edge = ss_big_logo_offscreen_edge(packet);
+            if (edge && tags->logo_count < 2u * SS_BIG_LOGO_PIECES) {
+                tags->logo[tags->logo_count] = packet;
+                tags->logo_edge[tags->logo_count++] = (int8_t)edge;
+            }
+            break;
+        }
+        }
+    }
+    return 1;
+}
+
+static void ss_menu_vblank(void)
+{
+    const int32_t reveal = psx_mod_widescreen_view_x_margin();
+    if (!ss_menus_enabled || reveal <= 0 || !ss_frontend_scene()) {
+        ss_menu_wide = 0;
+        ss_menu_streak = 0;
+        return;
+    }
+    const uint32_t ui_table = psx_mod_read_word(SS_UI_TABLE_PTR);
+    ss_frontend_tags tags;
+    tags.extend_count = tags.logo_count = 0;
+    const int verified =
+        ui_table >= 0x80000000u && ui_table <= 0x80200000u - SS_FE_UI_TABLE_BYTES &&
+        (ui_table & 3u) == 0u &&
+        ss_scan_frontend_context(SS_OT_CONTEXT_A, ui_table, &tags) &&
+        ss_scan_frontend_context(SS_OT_CONTEXT_B, ui_table, &tags);
+    if (!verified) {
+        psx_mod_counter_add("sledstorm.widescreen.menu.native_43", 1u);
+        ss_menu_wide = 0;
+        ss_menu_streak = 0;
+        return;
+    }
+    /* Frame pieces and logo pieces are disjoint: a logo piece is textured
+     * with many texels and wholly beside the picture, never a frame piece. */
+    for (unsigned i = 0; i < tags.extend_count; ++i)
+        psx_mod_tag_reveal_edge_quad(tags.extend[i], PSX_MOD_REVEAL_EDGE_LEFT |
+                                                     PSX_MOD_REVEAL_EDGE_RIGHT);
+    for (unsigned i = 0; i < tags.logo_count; ++i)
+        psx_mod_anchor_hud_primitive(tags.logo[i], tags.logo_edge[i]);
+    psx_mod_counter_add("sledstorm.widescreen.menu.tagged", tags.extend_count);
+    psx_mod_counter_add("sledstorm.widescreen.menu.logo_hidden", tags.logo_count);
+    if (ss_menu_streak < SS_MENU_AGREE)
+        ++ss_menu_streak;
+    ss_menu_wide = ss_menu_streak >= SS_MENU_AGREE;
+}
+
+static void widescreen_vblank(void)
+{
+    ss_menu_vblank();
+    widescreen_hud_vblank();
+}
+
 static int ss_option_enabled(const char* value)
 {
     return strcmp(value, "true") == 0;
 }
 
+static void ss_set_menus_enabled(int enabled)
+{
+    ss_menus_enabled = enabled;
+    ss_menu_wide = 0;
+    ss_menu_streak = 0;
+}
+
 static int widescreen_option_changed(const char* option_id, const char* value)
 {
-    if (strcmp(option_id, "edge-hud") != 0)
-        return 0;
-    ss_edge_hud_enabled = ss_option_enabled(value);
-    return 1;
+    if (strcmp(option_id, "edge-hud") == 0) {
+        ss_edge_hud_enabled = ss_option_enabled(value);
+        return 1;
+    }
+    if (strcmp(option_id, "widescreen-menus") == 0) {
+        ss_set_menus_enabled(ss_option_enabled(value));
+        return 1;
+    }
+    return 0;
 }
 
 static void widescreen_session_reset(void)
 {
     ss_edge_hud_enabled = 0;
+    ss_set_menus_enabled(0);
 }
 
 static void widescreen_activate(void)
@@ -426,6 +665,9 @@ static void widescreen_activate(void)
     ss_edge_hud_enabled =
         psx_mod_current_option_value("edge-hud", value, sizeof value) &&
         ss_option_enabled(value);
+    ss_set_menus_enabled(
+        psx_mod_current_option_value("widescreen-menus", value, sizeof value) &&
+        ss_option_enabled(value));
     (void)psx_mod_set_fixed_display_aspect(16, 9);
     /* The runtime clears this predicate before every plan activation, so it
      * only exists while this feature is enabled. */
@@ -439,7 +681,7 @@ PSX_MOD_CONSTRUCTOR(register_widescreen)
         widescreen_activate
     );
     (void)psx_mod_register_vblank_plugin(
-        "sledstorm.widescreen", widescreen_hud_vblank);
+        "sledstorm.widescreen", widescreen_vblank);
     (void)psx_mod_register_option_changed_plugin(
         "sledstorm.widescreen", widescreen_option_changed);
     (void)psx_mod_register_session_reset_plugin(
