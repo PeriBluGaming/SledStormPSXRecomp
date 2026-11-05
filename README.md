@@ -1,94 +1,204 @@
 # SledStorm Recompiled
 
+**Snowmobile racing from 1999, recompiled for modern systems. Now in native 16:9.**
+
+*Sled Storm* (PlayStation, 1999), statically recompiled into a native
+executable for Windows, Linux and macOS, with optional native widescreen.
+
 <!-- retcomm-readme-metrics -->
 [![GitHub downloads (all assets, all releases)](https://img.shields.io/github/downloads/PeriBluGaming/SledStormPSXRecomp/total)](https://github.com/PeriBluGaming/SledStormPSXRecomp/releases)
 [![GitHub downloads (latest release)](https://img.shields.io/github/downloads/PeriBluGaming/SledStormPSXRecomp/latest/total)](https://github.com/PeriBluGaming/SledStormPSXRecomp/releases/latest)
 [![GitHub release](https://img.shields.io/github/v/release/PeriBluGaming/SledStormPSXRecomp)](https://github.com/PeriBluGaming/SledStormPSXRecomp/releases/latest)
 <!-- /retcomm-readme-metrics -->
 
-SledStormPSXRecomp is an unofficial, noncommercial static recompilation of the
-PlayStation game **Sled Storm**, built on
-[psxrecomp](https://github.com/mstan/psxrecomp) and
-[recomp-ui](https://github.com/RetroPortingToolKit/recomp-ui). It runs the game
-as a native executable. You need your own legally obtained copy of the game to
-play.
+## Highlights
+
+- **Native 16:9 widescreen**: single-player races show more of the track at
+  the sides, rendered wide instead of stretched.
+- **Widescreen menus**: the menus with a live 3D background open up to the
+  full 16:9 screen.
+- **Edge-aligned HUD**: an optional layout that moves the race HUD to the
+  edges of the wide screen.
+- **Original 4:3 whenever you want it**: every enhancement is optional and
+  off by default.
+- **No retail BIOS needed**: the open-source OpenBIOS is bundled.
+
+> [!IMPORTANT]
+> **You need your own copy of the game.** SledStorm Recompiled contains no
+> disc image and no retail BIOS. You supply a disc image of the European PAL
+> release (SLES-02194).
+
+## 4:3 vs. Native 16:9 Widescreen
+
+Native widescreen renders a wider view of the scene: the track and the
+scenery that the original 4:3 picture cuts off at the sides are actually
+drawn. Nothing is stretched, so the sleds, riders and HUD keep their original
+proportions.
+
+### Title Screen
+
+<table>
+  <tr>
+    <th width="50%">Original 4:3</th>
+    <th width="50%">Native 16:9</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/title-4x3.png" width="100%" alt="Sled Storm title screen in the original 4:3 presentation: the menu frame and the snowy 3D background end at the sides of a 4:3 picture"></td>
+    <td valign="top"><img src="docs/screenshots/title-16x9.png" width="100%" alt="The same title screen in native 16:9 with Widescreen menus enabled: the 3D background is wider and the menu frame reaches the screen edges"></td>
+  </tr>
+</table>
+
+### Gameplay
+
+<table>
+  <tr>
+    <th width="50%">Original 4:3</th>
+    <th width="50%">Native 16:9</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/gameplay-4x3.png" width="100%" alt="A single-player race in the original 4:3 presentation, with the HUD in its original layout"></td>
+    <td valign="top"><img src="docs/screenshots/gameplay-16x9.png" width="100%" alt="A single-player race in native 16:9 with the Edge-aligned HUD: more of the track and the rival sleds are visible at the sides"></td>
+  </tr>
+</table>
+
+<sub>Screenshots of the game window on macOS, scaled proportionally: not cropped
+or stretched. The gameplay shots were taken at different moments of
+a race. Game content belongs to its rights holders and is not covered by this
+project's license.</sub>
 
 ## About
 
-*Sled Storm* is a snowmobile racing game for the PlayStation, developed by EA
-Canada and published by Electronic Arts in 1999. This project targets the PAL
-release:
+SledStorm Recompiled (this repository: SledStormPSXRecomp) is an unofficial,
+noncommercial static recompilation. It translates the game's original
+PlayStation code into C ahead of time and compiles it into a native program.
+It is built on [psxrecomp](https://github.com/mstan/psxrecomp), which
+provides the recompiler and the runtime that stands in for the PlayStation
+hardware, and [recomp-ui](https://github.com/RetroPortingToolKit/recomp-ui),
+which provides the launcher. Game data is read from your own disc image.
 
 | | |
 |---|---|
-| Serial | SLES-02194 |
+| Game | Sled Storm |
+| Region / serial | Europe (PAL) · SLES-02194 |
 | Boot executable | `SLES_021.94` |
-| Region | Europe (PAL) |
 | Languages on disc | English, French, German, Spanish |
+| Developer / publisher | EA Canada / Electronic Arts |
+| Original release | 1999, PlayStation |
 
-psxrecomp translates the game's MIPS executable into C (`generated/`), which
-is compiled together with the psxrecomp runtime into a native executable. The
-runtime boots the game on the bundled OpenBIOS, so no retail BIOS is needed.
+## Features
 
-The project was scaffolded with psxrecomp's New Project Layout. See
-`psxrecomp/docs/GAME_PROJECT_SETUP.md` for the full flow.
+This README describes **SledStorm Recompiled v0.2.0**. All enhancements are
+part of the bundled **16:9 Widescreen** mod and are off by default.
 
-## Current status
+| Enhancement | What it does |
+|---|---|
+| **Native 16:9 races** | Renders single-player races natively in 16:9. The track renderer draws the geometry and scenery that the 4:3 view cuts off at the sides. Gameplay, physics and controls are unchanged. |
+| **Widescreen menus** | Shows the frontend menus that have a live 3D background in native 16:9: the scene behind them is wider and the menu frame reaches the screen edges. |
+| **Edge-aligned HUD** | Moves the race HUD panels, the speedometer and the track map with its racer markers to the edges of the 16:9 screen. Centred messages such as the countdown, Wrong Way and stunt scores stay in the centre. |
+| **Pause in 16:9** | The pause screen of a single-player race keeps the wide view. |
+| **Safe 4:3 fallback** | Screens and modes that are not supported, or that cannot be widened safely, are shown in the original 4:3 presentation instead of a broken wide picture. |
+| **Original 4:3** | With the mod switched off, the game runs with its original 4:3 rendering. |
 
-This is an early playable build.
+What stays 4:3 is listed under [Known limitations](#known-limitations).
 
-- The game starts, and controls, driving physics, graphics, tracks and audio
-  work in the tests done so far. A complete race has been finished.
-- The project's first own mod is an optional native 16:9 widescreen mode (see
-  [Widescreen (16:9)](#widescreen-169)). It is experimental and disabled by
-  default. An optional edge-aligned HUD is part of it, also experimental and
-  off by default.
-- Testing has been limited to the maintainer's own setup. No broader
-  compatibility or platform testing has been done yet.
-- The seed list in `seeds/ghidra_funcs.txt` is the first-pass scan of the boot
-  executable and is expected to grow.
+## Download
 
-Expect bugs.
+Get SledStorm Recompiled from the
+[Releases page](https://github.com/PeriBluGaming/SledStormPSXRecomp/releases).
+Each release provides `sledstorm-<version>-<platform>.zip`:
 
-## Widescreen (16:9)
+| Platform | File suffix | CI build | Manual runtime testing |
+|---|---|---|---|
+| Windows x64 | `windows-x64` | Passed | Not yet tested |
+| Linux x64 | `linux-x64` | Passed | Not yet tested |
+| macOS Intel | `macos-x64` | Passed | **Tested** |
+| macOS Apple Silicon | `macos-arm64` | Passed | Not yet tested |
 
-The optional **16:9 Widescreen** mod (`sledstorm.enhancement.widescreen`)
-renders single-player races natively in 16:9 instead of stretching the 4:3
-picture:
+*CI build passed* means the v0.2.0 source was built, packaged and its zip
+contents checked automatically; it does not mean the game was played on that
+platform. *Tested* means the game was played on real hardware, on the
+maintainer's macOS Intel (x64) setup.
 
-- Native 16:9 rendering for supported single-player races.
-- A wider view of the track: track geometry and scenery that the original 4:3
-  view cuts off at the sides are drawn.
-- Menus, loading screens and split-screen races keep the original 4:3
-  presentation.
-- With the mod disabled, the game keeps its original 4:3 rendering.
-- Disabled by default.
+## Quick start
 
-To enable it, open the launcher's **Mods** page, switch on **16:9 Widescreen**
-(group *Visual*) and start the game. Switch it off the same way to return to
-the original 4:3 presentation.
+1. Download the zip for your platform from the
+   [Releases page](https://github.com/PeriBluGaming/SledStormPSXRecomp/releases)
+   and unpack it.
+2. Start `SledStorm_Recompiled`.
+3. On first run, select your disc image (`.cue` with its `.bin` files) of the
+   **European PAL release, SLES-02194**. No BIOS is needed: the open-source
+   OpenBIOS is bundled.
+4. To play in 16:9, open the launcher's **Mods** page, switch on
+   **16:9 Widescreen** (group *Visual*) and start the game.
 
-By default the HUD keeps its original 4:3 layout in the centre of the screen.
-The mod's optional **Edge-aligned HUD** setting (`edge-hud`, default `false`)
-moves the race HUD panels, the speedometer and the track map with its racer
-markers to the edges of the 16:9 screen. Centred messages such as the
-countdown, Wrong Way and stunt scores stay in the centre. The setting can be
-switched during a race. So far the mod has been tested in single races, the
-attract demo, pause and results screens and two-player split screen, and the
-edge-aligned HUD on three tracks, on the maintainer's setup; other race modes
-and tracks may still show issues.
-Gameplay, physics and controls are not changed.
+The launcher also configures controls. Internal Resolution starts at 4x on a
+fresh profile and can be changed there.
 
-## Requirements
+## Mods and configuration
 
-To play:
+The widescreen enhancements ship with the game as the mod package
+**Widescreen 16:9** (`sledstorm.enhancement.widescreen`) and are switched on
+and off on the launcher's **Mods** page:
 
-- Your own legally obtained copy of *Sled Storm* (PAL, SLES-02194) as a
-  `.cue`/`.bin` disc image. The expected data-track digests are recorded in
-  `game.toml`.
-- No retail BIOS is required; OpenBIOS is bundled.
+| Setting | ID | Default | Effect |
+|---|---|---|---|
+| **16:9 Widescreen** (feature, group *Visual*) | `widescreen` | Off | Native 16:9 for single-player races. Off keeps the original 4:3 rendering. |
+| **Edge-aligned HUD** (option) | `edge-hud` | Off | Moves the race HUD to the screen edges. Off keeps the HUD in its original 4:3 position. Can be switched during a race. |
+| **Widescreen menus** (option) | `widescreen-menus` | Off | Shows the menus with a 3D background in native 16:9. Off keeps all menus in 4:3. |
 
-To build from source (see `psxrecomp/docs/BUILDING.md` for details):
+The two options belong to the 16:9 Widescreen feature and only take effect
+while it is on. Further `.psxmod` packages can be installed through the
+launcher's Mods manager; see [mods/preloaded/README.md](mods/preloaded/README.md).
+
+<!-- retcomm-readme-launcher -->
+## Retro Launcher
+
+You can run this title **standalone** (download the release zip, point it at
+your disc, play), or manage installs, updates, and disc/BIOS wiring with
+**[Retro Launcher](https://github.com/RetroPortingToolKit/Retro-Launcher)** —
+the Retro Compilation Manager hub for self-compiling recomps.
+
+[Downloads](https://github.com/RetroPortingToolKit/Retro-Launcher/releases) ·
+[Full README & features](https://github.com/RetroPortingToolKit/Retro-Launcher#readme)
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/RetroPortingToolKit/Retro-Launcher/main/docs/screenshots/hub-and-game-launcher.png" alt="Retro hub with a background build, next to a title’s recomp-ui launcher" width="720">
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/RetroPortingToolKit/Retro-Launcher/main/docs/screenshots/queue-and-background-build.png" alt="Background cmake build with titles queued" width="720">
+</p>
+
+Retro checks for updates, installs the prebuilt release zips, and automates
+BIOS/ROM/save plumbing so you are not stuck repeating each game’s first run by hand.
+<!-- /retcomm-readme-launcher -->
+
+## Known limitations
+
+- **Widescreen covers single-player races and the menus with a 3D
+  background.** Split-screen races, loading screens, results screens, the
+  language selection and menus without a 3D background keep the original 4:3
+  presentation. Because each screen is checked on its own, the picture can
+  change between 16:9 and 4:3 from one screen to the next.
+- **Tested scope.** Widescreen has been tested in single races, the attract
+  demo, pause and results screens and two-player split screen, and the
+  Edge-aligned HUD on three tracks. Other race modes and tracks may still show
+  issues at the screen edges.
+- **Launcher labels.** The launcher marks the widescreen settings as
+  *Experimental*.
+- **Platforms.** Manual runtime testing has been done on macOS Intel (x64)
+  only. Windows x64, Linux x64 and macOS Apple Silicon builds pass CI but have
+  not been played yet.
+
+Please report problems on the
+[issue tracker](https://github.com/PeriBluGaming/SledStormPSXRecomp/issues).
+
+## Building from source
+
+`generated/` (the recompiled game C) **is committed**, so a build does not
+need the disc.
+
+Requirements:
 
 - Git, to fetch the submodules
 - A C/C++ toolchain: Apple Clang (Xcode command-line tools) on macOS, GCC or
@@ -96,11 +206,6 @@ To build from source (see `psxrecomp/docs/BUILDING.md` for details):
 - CMake 3.20 or newer; on macOS and Linux also Ninja and pkg-config
 - Python 3 (3.11 or newer, or `tomli`, for `tools/sync_symbols.py`)
 - The game disc, only if you want to regenerate `generated/`
-
-## Building from source
-
-`generated/` (the recompiled game C) **is committed**, so a build does not
-need the disc:
 
 ```bash
 git clone --recursive https://github.com/PeriBluGaming/SledStormPSXRecomp.git
@@ -112,14 +217,21 @@ cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-release --target psx-runtime
 ```
 
-The build needs the local framework patches in `patches/psxrecomp/` (see its
-README). `scripts/apply_framework_patches.sh` checks that `psxrecomp` is at the
-pinned revision, applies the patches to the submodule's working tree and does
-nothing when they are already applied; it stops with an explanation if the
-framework checkout is at another revision or carries other changes. CMake
-refuses to configure without the patches. Run the script again after every
-`git submodule update` or `git -C psxrecomp checkout -- .`; on Windows, run it
-from Git Bash or the MSYS2 shell.
+See `psxrecomp/docs/BUILDING.md` for toolchain details.
+
+### Framework patches
+
+The build needs the local framework patches in `patches/psxrecomp/` (see
+[its README](patches/psxrecomp/README.md)). `scripts/apply_framework_patches.sh`
+checks that `psxrecomp` is at the pinned revision, applies the patches to the
+submodule's working tree and does nothing when they are already applied; it
+stops with an explanation if the framework checkout is at another revision or
+carries other changes. CMake refuses to configure without the patches. Run the
+script again after every `git submodule update` or
+`git -C psxrecomp checkout -- .`; on Windows, run it from Git Bash or the
+MSYS2 shell.
+
+### Regenerating the game C
 
 To regenerate the game C from your own disc (needed when the seeds or the
 framework pin change):
@@ -131,9 +243,15 @@ python3 psxrecomp/psxrecomp_cli.py generate \
 git add generated && git commit -m "Regenerate game C"
 ```
 
-Disc images under `disc/` are gitignored and must never be committed. Retail
-BIOS dumps are not redistributed, and no C derived from one may be committed;
-releases run on the bundled MIT-licensed OpenBIOS.
+The expected data-track digests of the disc are recorded in `game.toml`. Disc
+images under `disc/` are gitignored and must never be committed. Retail BIOS
+dumps are not redistributed, and no C derived from one may be committed;
+releases run on the bundled MIT-licensed OpenBIOS. The seed list in
+`seeds/ghidra_funcs.txt` is the first-pass scan of the boot executable and is
+expected to grow.
+
+The project was scaffolded with psxrecomp's New Project Layout; see
+`psxrecomp/docs/GAME_PROJECT_SETUP.md` for the full flow.
 
 Default app icon: `assets/psxrecomp.ico` (and `.png` / `.svg`), the
 Retro-themed controller mark from `psxrecomp/assets/`. Windows builds embed it
@@ -190,36 +308,23 @@ Submodule gitlinks (`psxrecomp`, optional `recomp-ui`, nested `recomp-net`)
 are authoritative. `framework_pins.txt` is an optional scaffold snapshot;
 release CI logs SHAs with `record_pins.sh` but builds whatever the gitlinks
 resolve to. Bump submodules deliberately — do not float on `main`/`master`
-in release CI.
+in release CI. A new psxrecomp pin also needs the local patches revalidated
+against it (`patches/psxrecomp/BASE`).
 
-<!-- retcomm-readme-launcher -->
-## Retro Launcher
+## Documentation
 
-You can run this title **standalone** (download the release zip, point it at
-your disc, play), or manage installs, updates, and disc/BIOS wiring with
-**[Retro Launcher](https://github.com/RetroPortingToolKit/Retro-Launcher)** —
-the Retro Compilation Manager hub for self-compiling recomps.
-
-[Downloads](https://github.com/RetroPortingToolKit/Retro-Launcher/releases) ·
-[Full README & features](https://github.com/RetroPortingToolKit/Retro-Launcher#readme)
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/RetroPortingToolKit/Retro-Launcher/main/docs/screenshots/hub-and-game-launcher.png" alt="Retro hub with a background build, next to a title’s recomp-ui launcher" width="720">
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/RetroPortingToolKit/Retro-Launcher/main/docs/screenshots/queue-and-background-build.png" alt="Background cmake build with titles queued" width="720">
-</p>
-
-Retro checks for updates, installs the prebuilt release zips, and automates
-BIOS/ROM/save plumbing so you are not stuck repeating each game’s first run by hand.
-<!-- /retcomm-readme-launcher -->
+| Page | Contents |
+|---|---|
+| [Framework patches](patches/psxrecomp/README.md) | The local psxrecomp patches, the pinned base and how they are applied |
+| [Preloaded mods](mods/preloaded/README.md) | How bundled and player-installed mod packages are organised |
+| [NOTICE.md](NOTICE.md) | Origin and license terms of every part of the repository |
+| `psxrecomp/docs/` | Framework documentation in the submodule: `BUILDING.md`, `GAME_PROJECT_SETUP.md`, `MOD_PACKAGES.md`, `SYMBOLS.md`, `RELEASING_A_TITLE.md` |
 
 ## Credits
 
 - **[PeriBluGaming](https://github.com/PeriBluGaming)**: author and maintainer
   of SledStormPSXRecomp (project setup, recompilation, the 16:9 widescreen
-  mod, testing and documentation).
+  mod, the psxrecomp patch, testing and documentation).
 - **Matthew Stanley**: [psxrecomp](https://github.com/mstan/psxrecomp) and
   [recomp-ui](https://github.com/RetroPortingToolKit/recomp-ui), which this
   project is built on, including the scaffold templates most project files
@@ -252,6 +357,7 @@ This license does **not** cover:
   rights holders. No license to it is granted here. Whether that code may be
   published or redistributed is a separate copyright question that this
   project's license does not answer.
+- **Game artwork**, including the screenshots in `docs/screenshots/`.
 - **[psxrecomp](https://github.com/mstan/psxrecomp)** (© Matthew Stanley,
   under its own license text, copied in
   [docs/licenses/psxrecomp-LICENSE](docs/licenses/psxrecomp-LICENSE)),
