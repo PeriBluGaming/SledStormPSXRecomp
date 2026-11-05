@@ -107,9 +107,19 @@ git clone --recursive https://github.com/PeriBluGaming/SledStormPSXRecomp.git
 cd SledStormPSXRecomp
 # or, in an existing clone:
 git submodule update --init --recursive
+bash scripts/apply_framework_patches.sh
 cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-release --target psx-runtime
 ```
+
+The build needs the local framework patches in `patches/psxrecomp/` (see its
+README). `scripts/apply_framework_patches.sh` checks that `psxrecomp` is at the
+pinned revision, applies the patches to the submodule's working tree and does
+nothing when they are already applied; it stops with an explanation if the
+framework checkout is at another revision or carries other changes. CMake
+refuses to configure without the patches. Run the script again after every
+`git submodule update` or `git -C psxrecomp checkout -- .`; on Windows, run it
+from Git Bash or the MSYS2 shell.
 
 To regenerate the game C from your own disc (needed when the seeds or the
 framework pin change):
@@ -138,12 +148,18 @@ with the title disc available. Commit the desired `VERSION`, source and
 framework pins, then run:
 
 ```bash
-scripts/package_release.sh --channel public
+bash scripts/apply_framework_patches.sh
+scripts/package_release.sh --channel public --allow-dirty
 # Use --channel playtest for a non-public package; --platform selects Windows/Linux.
 ```
 
-On Windows PowerShell, use
-`psxrecomp/tools/package_title_release.ps1 --channel public`. The generated
+The shared builder refuses a source tree with tracked changes, and the applied
+framework patches are exactly such changes in `psxrecomp/`. `--allow-dirty`
+accepts them and records the changed paths in the release manifest; check
+that those are only the files listed in `patches/psxrecomp/README.md`.
+
+On Windows PowerShell, apply the patches first (from Git Bash or MSYS2) and use
+`psxrecomp/tools/package_title_release.ps1 --channel public --allow-dirty`. The generated
 `packaging/release.toml` and player instructions define the title payload.
 The shared builder owns regeneration, qualified build defaults, fresh private
 PGO boot training on supported native toolchains, staging and verification.
@@ -151,7 +167,8 @@ Boot training is a build step, not gameplay qualification or a performance
 claim. See `psxrecomp/docs/RELEASING_A_TITLE.md`.
 
 The separate *Release builds* CI workflow (tag `vX.Y.Z` or dispatch) builds
-committed `generated/` C without a disc on Linux, Windows and macOS. It uses
+committed `generated/` C without a disc on Linux, Windows and macOS. It applies
+the framework patches right after checkout, uses
 `scripts/package_prebuilt_release.sh` and attaches compiled-game ZIPs. That
 explicit prebuilt path does not train selective PGO and is not the official
 optimized-release command. The common builder does not add macOS support.

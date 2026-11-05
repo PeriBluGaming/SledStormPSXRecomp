@@ -22,15 +22,21 @@ PeriBluGaming's own copyrightable contributions are Copyright (c) 2026
 PeriBluGaming and licensed under the PolyForm Noncommercial License 1.0.0
 (see `LICENSE`).
 
-**Current state:** the project's only original code is the optional native
-16:9 widescreen mod. The rest of the repository consists of psxrecomp
-scaffold files, code generated from the original game, tool-generated
-metadata and documentation. PeriBluGaming's own contributions are:
+**Current state:** the project's original code is the optional native 16:9
+widescreen mod and the tooling that applies its local framework patch. The
+rest of the repository consists of psxrecomp scaffold files, code generated
+from the original game, tool-generated metadata and documentation.
+PeriBluGaming's own contributions are:
 
 - `mods/src/widescreen.c`: the widescreen mod (16:9 presentation for
-  single-player races and the track renderer's widened screen-edge cull)
+  single-player races and, optionally, frontend menus, and the track
+  renderer's widened screen-edge cull)
 - `mods/preloaded/packages/sledstorm.enhancement.widescreen/0.1.0/manifest.toml`:
   the widescreen mod's package manifest
+- `scripts/apply_framework_patches.sh`, `cmake/framework_patches.cmake`,
+  `patches/psxrecomp/README.md` and `patches/psxrecomp/BASE`: applying and
+  checking the local psxrecomp patches (the patches themselves are covered in
+  section 7)
 - `NOTICE.md` (this file)
 - The project-specific text of `README.md` (the file as a whole is of mixed
   origin; see section 2)
@@ -174,6 +180,21 @@ or interprets psxrecomp's terms with binding effect.
 
 Source archives downloaded from GitHub do not contain submodule files. Fetch
 them with `git submodule update --init --recursive`.
+
+**Local psxrecomp patch.** Builds of this title use psxrecomp at the pinned
+revision above plus the local patch
+`patches/psxrecomp/0001-native-wide-reveal-edge-quads.patch`, applied by
+`scripts/apply_framework_patches.sh` (see `patches/psxrecomp/README.md`). It
+adds a host-side rendering API (`psx_mod_tag_reveal_edge_quad`) and changes
+these psxrecomp files: `runtime/include/gpu.h`,
+`runtime/include/mod_plugins.h`, `runtime/src/gpu.c`,
+`runtime/src/mod_runtime.cpp`, `runtime/CMakeLists.txt`,
+`docs/ADAPTIVE_SCREEN_MASKS.md` and three runtime tests; it adds
+`runtime/include/ws_reveal_edge.h` and two runtime tests. The patch and the
+patched files are modifications of psxrecomp by PeriBluGaming and remain under
+psxrecomp's license (section 6), Copyright (c) 2026 Matthew Stanley; this
+project claims no other terms for them. The submodule pin is not changed, and
+the patch is intended for upstream submission.
 
 The psxrecomp release packagers copy the upstream notices into every release
 package: `licenses/` holds psxrecomp's license (`psxrecomp-LICENSE`), its
