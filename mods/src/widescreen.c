@@ -16,15 +16,22 @@
  * and loading screens; 0x800D6A10 is the number of human players; the first
  * view's packed screen bound (view 0x800E2CB0 + 0x158) is 0x01000200
  * (Y 256, X 512) only for the full-screen view. Split screens use
- * 0x01000100 (side by side) or 0x00800200 (one above the other). */
+ * 0x01000100 (side by side) or 0x00800200 (one above the other).
+ *
+ * 0x800C3CA0 is the frontend's 3D-background mode (0 none, 1/2 drawn). The
+ * menus set the race flag before their closing frames are drawn; only the
+ * frontend exit (0x80019108) clears this mode, so it is 0 for the whole race
+ * and nonzero for those leftover track-select frames. */
 #define SS_RACE_ACTIVE      0x800D6980u
 #define SS_PLAYER_COUNT     0x800D6A10u
 #define SS_VIEW0_BOUND      0x800E2E08u
 #define SS_FULL_VIEW_BOUND  0x01000200u
+#define SS_FRONTEND_MODE    0x800C3CA0u
 
 static int ss_single_player_race(void)
 {
     return psx_mod_read_word(SS_RACE_ACTIVE) == 1u &&
+           psx_mod_read_word(SS_FRONTEND_MODE) == 0u &&
            psx_mod_read_word(SS_PLAYER_COUNT) == 1u &&
            psx_mod_read_word(SS_VIEW0_BOUND) == SS_FULL_VIEW_BOUND;
 }
