@@ -16,9 +16,11 @@
 # is then applied) or exactly the base plus the whole series (nothing to do).
 # Any other state -- another revision, a partly applied series, foreign
 # edits, extra or staged files, changed nested submodules, a damaged patch --
-# stops with an explanation and changes nothing. Only the submodule's working
-# tree is written: its index and HEAD and the superproject's gitlink stay as
-# they are. Runs on bash 3.2 (macOS), Linux and Git for Windows / MSYS2.
+# stops with an explanation and changes nothing. If the applied result does
+# not match the expected one, this run takes its own changes back. Only the
+# submodule's working tree is written: its index and HEAD and the
+# superproject's gitlink stay as they are. Runs on bash 3.2 (macOS), Linux and
+# Git for Windows / MSYS2.
 set -euo pipefail
 export LC_ALL=C
 
@@ -34,7 +36,7 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || die "--root needs a directory"
       ROOT="$(cd "$2" && pwd)" || die "no such directory: $2"
       shift 2 ;;
-    -h|--help) sed -n '5,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '5,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
 done
@@ -91,7 +93,7 @@ apply_errors() {
   found="$(grep -E '^(error|fatal):' "$WORK/apply.err" | head -n 5 | tr '\n' ' ' || true)"
   [ -n "$found" ] || found="$(tail -n 3 "$WORK/apply.err" | tr '\n' ' ')"
   [ -n "$found" ] || found="(git apply printed no diagnostics)"
-  printf '%s' "$found"
+  printf '%s' "${found% }"
 }
 
 # Every path the series touches (the post-image name of each file diff).
@@ -123,7 +125,13 @@ changed_paths() {
     sed -e 's/^...//' -e 's/.* -> //'
 }
 
-# Paths that differ from the expected patched state, one per line.
+changed_list() { changed_paths | tr '\n' ';'; }
+
+# Paths that differ from the expected patched state, one per line. Both sides
+# are hashed through psxrecomp's own clean filters for the path, so a checkout
+# with converted line endings (core.autocrlf on Windows, which also applies to
+# the git apply that built the expected files) compares by content as git
+# stores it; any change to that content still differs.
 mismatches() {
   local path want have
   while read -r path; do
@@ -131,7 +139,7 @@ mismatches() {
       if [ ! -f "$FW/$path" ]; then
         printf 'missing: %s\n' "$path"; continue
       fi
-      want="$(git -C "$FW" hash-object --no-filters "$EXPECTED/$path")"
+      want="$(git -C "$FW" hash-object --path="$path" "$EXPECTED/$path")"
       have="$(git -C "$FW" hash-object "$path")"
       [ "$want" = "$have" ] || printf 'differs: %s\n' "$path"
     elif [ -e "$FW/$path" ]; then
@@ -155,11 +163,29 @@ if [ -z "$(changed_paths)" ]; then
   fi
   git -C "$FW" apply --check "${PATCHES[@]}" 2>"$WORK/apply.err" ||
     die "the patches do not apply to psxrecomp: $(apply_errors)"
-  git -C "$FW" apply "${PATCHES[@]}" 2>"$WORK/apply.err" ||
-    die "applying the patches failed: $(apply_errors)"
+  # psxrecomp is clean here (no staged, changed or untracked files), so every
+  # change from now on is this run's own.
+  RESTORE="Restore psxrecomp (git -C psxrecomp checkout -- . and remove the untracked files) and run this script again."
+  if ! git -C "$FW" apply "${PATCHES[@]}" 2>"$WORK/apply.err"; then
+    err="$(apply_errors)"
+    [ -n "$(changed_paths)" ] ||
+      die "applying the patches failed: $err. psxrecomp is unchanged."
+    die "applying the patches failed part-way: $err. psxrecomp was clean before this run, so these changes are its own: $(changed_list) $RESTORE"
+  fi
   left="$(mismatches)"
-  [ -z "$left" ] ||
-    die "the applied result differs from the expected one (line-ending or filter settings?): $(printf '%s' "$left" | tr '\n' ';')"
+  if [ -n "$left" ]; then
+    left="$(printf '%s' "$left" | tr '\n' ';')"
+    # Take back exactly the series this run applied, last patch first.
+    REVERSED=()
+    for p in "${PATCHES[@]}"; do REVERSED=("$p" ${REVERSED[@]+"${REVERSED[@]}"}); done
+    if ! git -C "$FW" apply -R "${REVERSED[@]}" 2>"$WORK/apply.err"; then
+      die "the applied result differs from the expected one ($left) and reverting this run's patches failed: $(apply_errors). psxrecomp still has: $(changed_list) $RESTORE"
+    fi
+    rest="$(changed_list)"
+    [ -z "$rest" ] ||
+      die "the applied result differs from the expected one ($left); the patches were reverted, but psxrecomp still has: $rest $RESTORE"
+    die "the applied result differs from the expected one ($left; filter or line-ending settings?). This run's patches were reverted; psxrecomp is the clean base again."
+  fi
   note "applied ${#PATCHES[@]} patch(es) to psxrecomp $BASE"
   exit 0
 fi
